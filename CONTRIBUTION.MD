@@ -84,7 +84,7 @@ If your task requires editing a file outside your area, create a PR and request 
 
 ## Branching Strategy
 
-All development branches off `develop`. Never commit directly to `main` or `develop`.
+All development branches off `development`. Never commit directly to `main` or `development`.
 
 | Branch prefix | Use for |
 |---|---|
@@ -94,8 +94,8 @@ All development branches off `develop`. Never commit directly to `main` or `deve
 | `chore/` | Tooling, dependency updates, config |
 
 ```bash
-git checkout develop
-git pull origin develop
+git checkout development
+git pull origin development
 git checkout -b feature/your-feature-name
 ```
 
@@ -142,7 +142,7 @@ Keep the subject line under 72 characters. Reference related issues in the foote
    git push origin feature/your-feature-name
    ```
 
-2. Open a PR against `develop` (not `main`).
+2. Open a PR against `development` (not `main`).
 
 3. Fill in the PR description: what changed, why, and how to test it locally.
 
@@ -308,7 +308,7 @@ To test webhook signature verification: send a request with a correct `verif-has
 - ✅ Use `IS_DEV` guards on anything that must not run in production
 
 **Don't:**
-- ❌ Push directly to `main` or `develop`
+- ❌ Push directly to `main` or `development`
 - ❌ Call `ethers.js` outside of `contractService.ts`
 - ❌ Call WhatsApp or SMS APIs outside of `notificationService.ts`
 - ❌ Log OTPs, private keys, or raw JWT payloads
