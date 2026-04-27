@@ -14,21 +14,21 @@ if (require.main === module) {
   (async () => {
     try {
       const client = await pool.connect();
-      console.log('✅ PostgreSQL connected successfully');
+      console.log('PostgreSQL connected successfully');
       client.release();
       await pool.end();
 
       const ping = await redis.ping();
       if (ping === 'PONG') {
-        console.log('✅ Redis connected successfully');
+        console.log('Redis connected successfully');
       } else {
-        console.log('⚠️ Redis ping returned:', ping);
+        console.log('Redis ping returned:', ping);
       }
       redis.disconnect();
 
       process.exit(0);
     } catch (err) {
-      console.error('❌ Connection error:', err);
+      console.error('Connection error:', err);
       process.exit(1);
     }
   })();
