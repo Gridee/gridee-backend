@@ -8,15 +8,7 @@ import * as jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
 
-const registerSchema = z.object({
-  name: z.string().min(2),
-  phone: z.string().min(10),
-});
-
-const verifySchema = z.object({
-  phone: z.string().min(10),
-  code: z.string().length(6),
-});
+import { registerSchema, verifySchema } from '../schemas/authSchemas';
 
 export const authController = {
   async registerLandlord(req: Request, res: Response): Promise<void> {
