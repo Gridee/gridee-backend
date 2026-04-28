@@ -1,22 +1,15 @@
-import { Pool } from 'pg';
+import knex from 'knex';
+import knexConfig from '../knexfile';
 import { redis } from './redis';
 
-export const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5433', 10),
-  user: process.env.DB_USER || 'gridee_user',
-  password: process.env.DB_PASSWORD || 'gridee_pass',
-  database: process.env.DB_NAME || 'gridee',
-});
+export const db = knex(knexConfig.development);
 
 // Test connection if this file is executed directly
 if (require.main === module) {
   (async () => {
     try {
-      const client = await pool.connect();
-      console.log('PostgreSQL connected successfully');
-      client.release();
-      await pool.end();
+      await db.raw('SELECT 1');
+      console.log('PostgreSQL connected successfully via Knex');
 
       const ping = await redis.ping();
       if (ping === 'PONG') {
@@ -25,6 +18,7 @@ if (require.main === module) {
         console.log('Redis ping returned:', ping);
       }
       redis.disconnect();
+      await db.destroy();
 
       process.exit(0);
     } catch (err) {
