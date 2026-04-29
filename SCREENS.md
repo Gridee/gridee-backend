@@ -159,4 +159,26 @@ Sent automatically by `notificationService` — the user does not trigger these 
 
 ---
 
-> _Last updated: Day 1 — append new screen IDs here as they are built throughout the week._ > _Gridee · Web3Bridge Capstone 2026_
+### OTP & Verification
+
+| Screen ID     | Template function  | User-facing prompt / description                                                         |
+| ------------- | ------------------ | ---------------------------------------------------------------------------------------- |
+| `OTP_SENT`    | `otpMessage(code)` | "Your Gridee verification code is: [code]. Valid for 5 minutes. Do not share this code." |
+| `OTP_INVALID` | `invalidOTP()`     | "Incorrect code. That OTP doesn't match what we sent. Type RESEND for a new one."        |
+| `OTP_RESENT`  | `resendOTP()`      | "A new verification code has been sent to your number. Valid for 5 minutes."             |
+
+### Registration Flow
+
+| Screen ID              | Template function                 | User-facing prompt / description                                               |
+| ---------------------- | --------------------------------- | ------------------------------------------------------------------------------ |
+| `ROLE_PROMPT`          | `rolePrompt()`                    | First message to any new user — asks them to choose (1) Landlord or (2) Tenant |
+| `REGISTRATION_SUCCESS` | `registrationSuccess(name, role)` | Short confirmation that account was created, with a role-specific next step    |
+| `ALREADY_REGISTERED`   | `alreadyRegistered()`             | Shown when a phone number that already has an account tries to register again  |
+
+### Property Registration
+
+| Screen ID             | Template function                 | User-facing prompt / description                                        |
+| --------------------- | --------------------------------- | ----------------------------------------------------------------------- |
+| `PROPERTY_REGISTERED` | `propertyRegistered(code, label)` | "Property registered! Your code is [code]. Share it with your tenants." |
+
+---
