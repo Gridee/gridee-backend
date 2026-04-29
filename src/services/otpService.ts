@@ -2,6 +2,7 @@ import { redis } from '../redis';
 import { sendSMS } from './smsService';
 import crypto from 'crypto';
 
+
 export async function generateOTP(): Promise<string> {
   return crypto.randomInt(100000, 999999).toString();
 }
