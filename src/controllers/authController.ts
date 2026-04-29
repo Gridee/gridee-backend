@@ -98,6 +98,15 @@ export const authController = {
         role: pendingReg.role
       }).returning('*');
 
+      // If role is tenant, link them to their property
+      if (pendingReg.role === 'tenant') {
+        await db('tenants').insert({
+          user_id: newUser.id,
+          property_id: pendingReg.propertyId,
+          status: 'CONNECTED'
+        });
+      }
+
       // Call contract service
       const walletAddress = await contractService.assignWallet(newUser.id);
 
