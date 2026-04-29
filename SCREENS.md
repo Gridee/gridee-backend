@@ -236,3 +236,26 @@ Sent automatically by `notificationService` — the user does not trigger these 
 > **Note on dual dispatch:** `TENANT_REMOVED` fires both messages simultaneously via `Promise.all()` in `notificationService.ts`.
 
 ---
+
+### Missing templates added
+
+| Screen ID                     | Template function                                      | Description                                                                                                 |
+| ----------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `MY_PROPERTY_VIEW`            | `myPropertyInfo(label, address, landlordName, status)` | Tenant's view of their registered compound — label, address, landlord name, solar status                    |
+| `TENANT_REMOVED_LANDLORD_ALT` | `tenantRemoved(propertyName)`                          | Landlord confirmation — names the property. Use alongside `removedTenant(tenantName)` depending on context. |
+
+### Safety wrapper added
+
+| Function           | Description                                                                                                                   |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `safeMessage(msg)` | Truncates any string exceeding 4,096 chars to 4,090 + `...`. Must wrap every `send()` call as the final step before dispatch. |
+
+### Tone fixes applied (no screen ID change)
+
+| Template             | What changed                                                                   |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `errorGeneric`       | Removed "inconvenience" → "Sorry for the stress — we're on it"                 |
+| `cutoffNotice`       | "temporarily suspended" → "paused for now"                                     |
+| `youHaveBeenRemoved` | "Your Gridee access has changed" → "We have an update about your solar access" |
+
+---
