@@ -34,6 +34,15 @@ import {
   paymentExpired,
   paymentFailed,
   purchaseSMSConfirmation,
+  lowBalanceAlert,
+  cutoffNotice,
+  restoredNotice,
+  newTenantJoined,
+  earningsSummary,
+  withdrawalInitiated,
+  withdrawalConfirmed,
+  removedTenant,
+  youHaveBeenRemoved,
 } from "./index";
 
 const WHATSAPP_MAX_LENGTH = 4096;
@@ -679,5 +688,272 @@ describe("purchaseSMSConfirmation", () => {
   it("still fits within 160 chars with large GRD numbers", () => {
     const bigMsg = purchaseSMSConfirmation(99999, 199999, "*384*0#");
     expect(bigMsg.length).toBeLessThanOrEqual(SMS_MAX_LENGTH);
+  });
+});
+
+// --- lowBalanceAlert ---------------------------------------------------------
+
+describe("lowBalanceAlert", () => {
+  const msg = lowBalanceAlert(0.8, 0.5);
+
+  it("contains the GRD balance", () => {
+    expect(msg).toContain("0.8");
+  });
+
+  it("contains the kWh estimate", () => {
+    expect(msg).toContain("0.5");
+  });
+
+  it("prompts the user to top up with BUY", () => {
+    expect(msg).toContain("BUY");
+  });
+
+  it("communicates urgency without being alarmist", () => {
+    const lower = msg.toLowerCase();
+    expect(lower.includes("low") || lower.includes("running low")).toBe(true);
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- cutoffNotice ------------------------------------------------------------
+
+describe("cutoffNotice", () => {
+  const msg = cutoffNotice();
+
+  it("tells the user their access has been paused or suspended", () => {
+    const lower = msg.toLowerCase();
+    expect(lower.includes("paused") || lower.includes("suspended")).toBe(true);
+  });
+
+  it("tells them how to restore power with BUY", () => {
+    expect(msg).toContain("BUY");
+  });
+
+  it("reassures the user power will be restored after payment", () => {
+    expect(msg.toLowerCase()).toContain("restored");
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+
+  it("is a non-empty string", () => {
+    expect(msg.trim().length).toBeGreaterThan(0);
+  });
+});
+
+// --- restoredNotice ----------------------------------------------------------
+
+describe("restoredNotice", () => {
+  const msg = restoredNotice(420);
+
+  it("contains the new GRD balance", () => {
+    expect(msg).toContain("420");
+  });
+
+  it("communicates that power has been restored", () => {
+    expect(msg.toLowerCase()).toContain("restored");
+  });
+
+  it("mentions the BALANCE command", () => {
+    expect(msg).toContain("BALANCE");
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- newTenantJoined ---------------------------------------------------------
+
+describe("newTenantJoined", () => {
+  const msg = newTenantJoined("Funke Adeyemi", "GRD-LAG-0042");
+
+  it("contains the tenant's name", () => {
+    expect(msg).toContain("Funke Adeyemi");
+  });
+
+  it("contains the property code", () => {
+    expect(msg).toContain("GRD-LAG-0042");
+  });
+
+  it("communicates that a new tenant has joined", () => {
+    const lower = msg.toLowerCase();
+    expect(lower.includes("joined") || lower.includes("registered")).toBe(true);
+  });
+
+  it("works with different tenant names and property codes", () => {
+    const msg2 = newTenantJoined("Emeka Okafor", "GRD-ABJ-0001");
+    expect(msg2).toContain("Emeka Okafor");
+    expect(msg2).toContain("GRD-ABJ-0001");
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- earningsSummary ---------------------------------------------------------
+
+describe("earningsSummary", () => {
+  const breakdown = [
+    { code: "GRD-LAG-0042", amount: 12500 },
+    { code: "GRD-LAG-0099", amount: 7800 },
+  ];
+  const msg = earningsSummary(20300, breakdown);
+
+  it("contains the total earnings", () => {
+    expect(msg).toContain("20,300");
+  });
+
+  it("contains each property code in the breakdown", () => {
+    expect(msg).toContain("GRD-LAG-0042");
+    expect(msg).toContain("GRD-LAG-0099");
+  });
+
+  it("contains each property's earnings amount", () => {
+    expect(msg).toContain("12,500");
+    expect(msg).toContain("7,800");
+  });
+
+  it("mentions the WITHDRAW command", () => {
+    expect(msg).toContain("WITHDRAW");
+  });
+
+  it("handles a single-property breakdown correctly", () => {
+    const single = earningsSummary(5000, [
+      { code: "GRD-PHC-0003", amount: 5000 },
+    ]);
+    expect(single).toContain("GRD-PHC-0003");
+    expect(single).toContain("5,000");
+  });
+
+  it("handles an empty breakdown without crashing", () => {
+    const empty = earningsSummary(0, []);
+    expect(typeof empty).toBe("string");
+    expect(empty.trim().length).toBeGreaterThan(0);
+  });
+
+  it("stays within WhatsApp's 4,096-character limit for a typical breakdown (10 properties)", () => {
+    const manyProps = Array.from({ length: 10 }, (_, i) => ({
+      code: `GRD-LAG-00${String(i).padStart(2, "0")}`,
+      amount: 10000 + i * 1000,
+    }));
+    const bigMsg = earningsSummary(150000, manyProps);
+    expect(bigMsg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- withdrawalInitiated -----------------------------------------------------
+
+describe("withdrawalInitiated", () => {
+  const msg = withdrawalInitiated(12500, "4521");
+
+  it("contains the withdrawal amount", () => {
+    expect(msg).toContain("12,500");
+  });
+
+  it("contains the last 4 digits of the bank account", () => {
+    expect(msg).toContain("4521");
+  });
+
+  it("communicates the transfer is in progress", () => {
+    const lower = msg.toLowerCase();
+    expect(
+      lower.includes("transfer") ||
+        lower.includes("initiated") ||
+        lower.includes("being")
+    ).toBe(true);
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- withdrawalConfirmed -----------------------------------------------------
+
+describe("withdrawalConfirmed", () => {
+  const msg = withdrawalConfirmed(12500);
+
+  it("contains the confirmed withdrawal amount", () => {
+    expect(msg).toContain("12,500");
+  });
+
+  it("communicates success clearly", () => {
+    const lower = msg.toLowerCase();
+    expect(
+      lower.includes("sent") ||
+        lower.includes("complete") ||
+        lower.includes("confirmed")
+    ).toBe(true);
+  });
+
+  it("mentions the EARNINGS command as a next step", () => {
+    expect(msg).toContain("EARNINGS");
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- removedTenant -----------------------------------------------------------
+
+describe("removedTenant", () => {
+  const msg = removedTenant("Amaka Obi");
+
+  it("contains the removed tenant's name", () => {
+    expect(msg).toContain("Amaka Obi");
+  });
+
+  it("confirms the tenant has been removed", () => {
+    expect(msg.toLowerCase()).toContain("removed");
+  });
+
+  it("confirms the tenant's solar access has been stopped", () => {
+    const lower = msg.toLowerCase();
+    expect(lower.includes("stopped") || lower.includes("access")).toBe(true);
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- youHaveBeenRemoved ------------------------------------------------------
+
+describe("youHaveBeenRemoved", () => {
+  const msg = youHaveBeenRemoved("Surulere Block A");
+
+  it("contains the property name", () => {
+    expect(msg).toContain("Surulere Block A");
+  });
+
+  it("communicates the tenant has been removed", () => {
+    expect(msg.toLowerCase()).toContain("removed");
+  });
+
+  it("tells them their solar access has been stopped", () => {
+    const lower = msg.toLowerCase();
+    expect(lower.includes("stopped") || lower.includes("access")).toBe(true);
+  });
+
+  it("does not expose the landlord's reason for removal", () => {
+    // Should not contain any assumption about why they were removed
+    expect(msg.toLowerCase()).not.toContain("reason");
+    expect(msg.toLowerCase()).not.toContain("because");
+  });
+
+  it("is distinct from the landlord-facing removedTenant message", () => {
+    const landlordMsg = removedTenant("Amaka Obi");
+    expect(msg).not.toEqual(landlordMsg);
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
   });
 });

@@ -208,3 +208,31 @@ Sent automatically by `notificationService` — the user does not trigger these 
 > **Note:** `PURCHASE_SMS_CONFIRMATION` is the only template with a 160-char SMS limit constraint. All other templates target WhatsApp (4,096-char limit).
 
 ---
+
+### Balance Alerts (system-initiated → tenant)
+
+| Screen ID           | Template function                   | Trigger                                                                     |
+| ------------------- | ----------------------------------- | --------------------------------------------------------------------------- |
+| `ALERT_LOW_BALANCE` | `lowBalanceAlert(balance, kwhLeft)` | HAL emits `BALANCE_LOW` when tenant balance drops below 1 kWh               |
+| `ALERT_CUTOFF`      | `cutoffNotice()`                    | HAL emits `BALANCE_CUTOFF` when balance hits zero and meter suspends access |
+| `ALERT_RESTORED`    | `restoredNotice(newBalance)`        | HAL emits `BALANCE_RESTORED` after a top-up following a cutoff              |
+
+### Landlord Notifications (system-initiated → landlord)
+
+| Screen ID              | Template function                           | Trigger                                                               |
+| ---------------------- | ------------------------------------------- | --------------------------------------------------------------------- |
+| `NOTIFY_NEW_TENANT`    | `newTenantJoined(tenantName, propertyCode)` | HAL emits `TENANT_JOINED` when a tenant completes registration        |
+| `EARNINGS_SUMMARY`     | `earningsSummary(total, breakdown)`         | HAL emits `EARNINGS_REQUESTED` when landlord sends EARNINGS command   |
+| `WITHDRAWAL_INITIATED` | `withdrawalInitiated(amount, bankLast4)`    | HAL emits `WITHDRAWAL_INITIATED` after payout request is submitted    |
+| `WITHDRAWAL_CONFIRMED` | `withdrawalConfirmed(amount)`               | HAL emits `WITHDRAWAL_CONFIRMED` after payment provider settles funds |
+
+### Tenant Removal (system-initiated → two recipients)
+
+| Screen ID                 | Template function                  | Recipient                                        |
+| ------------------------- | ---------------------------------- | ------------------------------------------------ |
+| `TENANT_REMOVED_LANDLORD` | `removedTenant(tenantName)`        | Landlord — confirms action was completed         |
+| `TENANT_REMOVED_EVICTED`  | `youHaveBeenRemoved(propertyName)` | Evicted tenant — neutral notice, no reason given |
+
+> **Note on dual dispatch:** `TENANT_REMOVED` fires both messages simultaneously via `Promise.all()` in `notificationService.ts`.
+
+---

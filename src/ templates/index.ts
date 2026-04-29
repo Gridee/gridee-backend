@@ -418,3 +418,174 @@ export function purchaseSMSConfirmation(
 ): string {
   return `Gridee: +${grdAmount} GRD added. New balance: ${newBalance} GRD. Dial ${dialCode} to check your account.`;
 }
+
+/**
+ * Push notification sent to a tenant when their balance drops below 1 kWh.
+ * Triggered automatically by the consumption engine (cron job on backend).
+ * Goal: create just enough urgency to prompt a top-up without being alarmist.
+ *
+ * @param balance - Current GRD balance remaining.
+ * @param kwhLeft - Estimated kWh equivalent of the remaining balance.
+ */
+export function lowBalanceAlert(balance: number, kwhLeft: number): string {
+  return [
+    `⚠️ *Low Energy Alert!*`,
+    ``,
+    `Your Gridee balance is running low — *${balance} GRD* left (≈ ${kwhLeft} kWh).`,
+    ``,
+    `Top up now to avoid any interruption to your power supply.`,
+    `👉 Type *BUY [amount]* to recharge, e.g. *BUY 2000*`,
+    ``,
+    `_Don't let the lights go out! ⚡_`,
+  ].join("\n");
+}
+
+/**
+ * Push notification sent to a tenant the moment their balance hits zero
+ * and solar access is suspended by the smart meter.
+ * Tone: calm and solution-focused — the user is probably already frustrated.
+ */
+export function cutoffNotice(): string {
+  return [
+    `⚡ *Your solar access has been paused.*`,
+    ``,
+    `Your Gridee balance is empty, so your power supply has been temporarily suspended.`,
+    ``,
+    `To restore your power immediately, type *BUY [amount]* — e.g. *BUY 2000*.`,
+    ``,
+    `_Your access will be restored as soon as your payment is confirmed. 🙏_`,
+  ].join("\n");
+}
+
+/**
+ * Push notification sent to a tenant the moment power is restored after a top-up
+ * following a cutoff. Should feel instant and celebratory.
+ *
+ * @param newBalance - The tenant's GRD balance after the restoring top-up.
+ */
+export function restoredNotice(newBalance: number): string {
+  return [
+    `✅ *Power restored! Your solar is back on. ⚡*`,
+    ``,
+    `New balance: *${newBalance} GRD*`,
+    ``,
+    `_Enjoy the light! Type *BALANCE* anytime to check your remaining energy._`,
+  ].join("\n");
+}
+
+/**
+ * Push notification sent to a landlord when a new tenant successfully registers
+ * under one of their properties.
+ *
+ * @param tenantName   - The new tenant's full name.
+ * @param propertyCode - The property code they registered under, e.g. "GRD-LAG-0042".
+ */
+export function newTenantJoined(
+  tenantName: string,
+  propertyCode: string
+): string {
+  return [
+    `👋 *New tenant joined!*`,
+    ``,
+    `*${tenantName}* has registered under property *${propertyCode}*.`,
+    ``,
+    `_Type *TENANTS ${propertyCode}* to view all tenants on this property._`,
+  ].join("\n");
+}
+
+/**
+ * Sent to a landlord when they request their earnings summary.
+ * Shows the total across all properties, then a per-property breakdown.
+ * Uses toLocaleString for readable NGN formatting (e.g. 12,500 not 12500).
+ *
+ * @param total     - Total NGN earnings across all properties.
+ * @param breakdown - Per-property earnings: code and NGN amount.
+ */
+export function earningsSummary(
+  total: number,
+  breakdown: Array<{ code: string; amount: number }>
+): string {
+  const formattedTotal = total.toLocaleString("en-NG");
+
+  const lines = breakdown.map(
+    (p) => `  • *${p.code}* — ₦${p.amount.toLocaleString("en-NG")}`
+  );
+
+  return [
+    `💰 *Your Gridee Earnings*`,
+    ``,
+    `*Total: ₦${formattedTotal}*`,
+    ``,
+    `Breakdown by property:`,
+    ...lines,
+    ``,
+    `_Type *WITHDRAW* to transfer your earnings to your bank account._`,
+  ].join("\n");
+}
+
+/**
+ * Sent to a landlord immediately after a withdrawal request is submitted
+ * to the payment provider. Confirms the transfer is in motion.
+ *
+ * @param amount    - NGN amount being transferred.
+ * @param bankLast4 - Last 4 digits of the destination bank account.
+ */
+export function withdrawalInitiated(amount: number, bankLast4: string): string {
+  const formattedAmount = amount.toLocaleString("en-NG");
+  return [
+    `🏦 *Withdrawal initiated.*`,
+    ``,
+    `₦${formattedAmount} is being transferred to your account ending in *${bankLast4}*.`,
+    ``,
+    `_This usually arrives within 2 hours. We'll notify you once it lands. 🙏_`,
+  ].join("\n");
+}
+
+/**
+ * Sent to a landlord once the payment provider confirms funds have settled.
+ *
+ * @param amount - NGN amount that was successfully transferred.
+ */
+export function withdrawalConfirmed(amount: number): string {
+  const formattedAmount = amount.toLocaleString("en-NG");
+  return [
+    `✅ *₦${formattedAmount} has been sent to your bank account.*`,
+    ``,
+    `Your withdrawal is complete. The funds should be in your account now.`,
+    ``,
+    `_Type *EARNINGS* to check your remaining balance. 💰_`,
+  ].join("\n");
+}
+
+/**
+ * Sent to the LANDLORD after they successfully remove a tenant from a property.
+ * Confirms the action was carried out so they have a record.
+ *
+ * @param tenantName - The full name of the tenant who was removed.
+ */
+export function removedTenant(tenantName: string): string {
+  return [
+    `✅ *Done. ${tenantName} has been removed.*`,
+    ``,
+    `Their solar access has been stopped and they've been notified.`,
+    ``,
+    `_Type *MY PROPERTIES* to view your remaining tenants._`,
+  ].join("\n");
+}
+
+/**
+ * Sent to the EVICTED TENANT when a landlord removes them from a property.
+ * Tone: neutral and factual — Gridee is not taking sides.
+ * Does not expose the landlord's reason for removal.
+ *
+ * @param propertyName - The human-readable name of the property they were removed from.
+ */
+export function youHaveBeenRemoved(propertyName: string): string {
+  return [
+    `ℹ️ *Your Gridee access has changed.*`,
+    ``,
+    `You have been removed from *${propertyName}* by your landlord. Your solar access for this property has been stopped.`,
+    ``,
+    `_If you believe this is a mistake, please contact your landlord directly._`,
+  ].join("\n");
+}
