@@ -38,6 +38,12 @@ export async function up(knex: Knex): Promise<void> {
       table.string('status', 50);
       table.timestamp('created_at').defaultTo(knex.fn.now());
     })
+    .createTable('meters', (table) => {
+      table.increments('id').primary();
+      table.integer('tenant_id').unsigned().references('id').inTable('tenants').notNullable();
+      table.string('device_id', 255).notNullable().unique();
+      table.timestamp('registered_at').defaultTo(knex.fn.now());
+    })
     .createTable('notifications', (table) => {
       table.increments('id').primary();
       table.integer('user_id').unsigned().references('id').inTable('users');
@@ -51,6 +57,7 @@ export async function up(knex: Knex): Promise<void> {
 export async function down(knex: Knex): Promise<void> {
   await knex.schema
     .dropTableIfExists('notifications')
+    .dropTableIfExists('meters')
     .dropTableIfExists('transactions')
     .dropTableIfExists('tenants')
     .dropTableIfExists('properties')
