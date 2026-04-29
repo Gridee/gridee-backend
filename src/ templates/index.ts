@@ -109,7 +109,7 @@ export function errorGeneric(): string {
     ``,
     `Please try again in a moment. If the problem keeps happening, type *HELP* to see your options.`,
     ``,
-    `_We're sorry for the inconvenience. 🙏_`,
+    `_Sorry for the stress — we're on it. 🙏_`,
   ].join("\n");
 }
 
@@ -449,7 +449,7 @@ export function cutoffNotice(): string {
   return [
     `⚡ *Your solar access has been paused.*`,
     ``,
-    `Your Gridee balance is empty, so your power supply has been temporarily suspended.`,
+    `Your Gridee balance is empty, so your power supply has been paused for now.`,
     ``,
     `To restore your power immediately, type *BUY [amount]* — e.g. *BUY 2000*.`,
     ``,
@@ -582,10 +582,71 @@ export function removedTenant(tenantName: string): string {
  */
 export function youHaveBeenRemoved(propertyName: string): string {
   return [
-    `ℹ️ *Your Gridee access has changed.*`,
+    `ℹ️ *We have an update about your solar access.*`,
     ``,
     `You have been removed from *${propertyName}* by your landlord. Your solar access for this property has been stopped.`,
     ``,
     `_If you believe this is a mistake, please contact your landlord directly._`,
   ].join("\n");
+}
+
+/**
+ * Shown to a tenant when they send the MY PROPERTY command.
+ * Gives them a full snapshot of the compound they are registered under.
+ *
+ * @param label        - Human-friendly name of the property, e.g. "Surulere Block A".
+ * @param address      - Full street address of the compound.
+ * @param landlordName - Full name of the landlord who owns the property.
+ * @param status       - Current solar system status, e.g. "Active", "Maintenance".
+ */
+export function myPropertyInfo(
+  label: string,
+  address: string,
+  landlordName: string,
+  status: string
+): string {
+  return [
+    `🏠 *Your Property*`,
+    ``,
+    `*${label}*`,
+    `📍 ${address}`,
+    ``,
+    `👤 *Landlord:* ${landlordName}`,
+    `⚡ *Solar Status:* ${status}`,
+    ``,
+    `_Type *BALANCE* to check your energy tokens, or *HELP* for more options._`,
+  ].join("\n");
+}
+
+/**
+ * Sent to the LANDLORD after a tenant is removed from one of their properties.
+ * Confirms the specific property the tenant was removed from.
+ * Distinct from removedTenant() which names the tenant — this one names the property.
+ * Use whichever is more contextually useful at the call site.
+ *
+ * @param propertyName - The human-friendly name of the property the tenant was removed from.
+ */
+export function tenantRemoved(propertyName: string): string {
+  return [
+    `✅ *Tenant removed from ${propertyName}.*`,
+    ``,
+    `The tenant's solar access has been stopped and they've been notified.`,
+    ``,
+    `_Type *TENANTS* to view who's still on this property._`,
+  ].join("\n");
+}
+
+/**
+ * Safety wrapper — truncates any message that exceeds WhatsApp's 4,096-character limit.
+ * Should be the last step before every send() call.
+ *
+ * In practice, no template in this module should ever hit the limit — but this
+ * protects against dynamic content (e.g. long property names, long bank reasons)
+ * causing a silent send failure on the WhatsApp API side.
+ *
+ * @param msg - The fully rendered template string.
+ * @returns   The original string if within limit, or a truncated version with ellipsis.
+ */
+export function safeMessage(msg: string): string {
+  return msg.length > 4096 ? msg.slice(0, 4090) + "..." : msg;
 }

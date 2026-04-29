@@ -43,6 +43,9 @@ import {
   withdrawalConfirmed,
   removedTenant,
   youHaveBeenRemoved,
+  myPropertyInfo,
+  tenantRemoved,
+  safeMessage,
 } from "./index";
 
 const WHATSAPP_MAX_LENGTH = 4096;
@@ -955,5 +958,162 @@ describe("youHaveBeenRemoved", () => {
 
   it("stays within WhatsApp's 4,096-character limit", () => {
     expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- Tone regression: errorGeneric -------------------------------------------
+
+describe("errorGeneric (tone regression)", () => {
+  it("does not use corporate language like 'inconvenience'", () => {
+    const msg = errorGeneric();
+    expect(msg.toLowerCase()).not.toContain("inconvenience");
+  });
+});
+
+// --- Tone regression: cutoffNotice -------------------------------------------
+
+describe("cutoffNotice (tone regression)", () => {
+  it("does not use formal language like 'temporarily suspended'", () => {
+    const msg = cutoffNotice();
+    expect(msg.toLowerCase()).not.toContain("temporarily suspended");
+  });
+});
+
+// --- Tone regression: youHaveBeenRemoved -------------------------------------
+
+describe("youHaveBeenRemoved (tone regression)", () => {
+  it("does not use the cold phrase 'your gridee access has changed'", () => {
+    const msg = youHaveBeenRemoved("Surulere Block A");
+    expect(msg.toLowerCase()).not.toContain("your gridee access has changed");
+  });
+});
+
+// --- myPropertyInfo ----------------------------------------------------------
+
+describe("myPropertyInfo", () => {
+  const msg = myPropertyInfo(
+    "Surulere Block A",
+    "14 Bode Thomas Street, Surulere, Lagos",
+    "Alhaji Musa",
+    "Active"
+  );
+
+  it("contains the property label", () => {
+    expect(msg).toContain("Surulere Block A");
+  });
+
+  it("contains the address", () => {
+    expect(msg).toContain("14 Bode Thomas Street, Surulere, Lagos");
+  });
+
+  it("contains the landlord's name", () => {
+    expect(msg).toContain("Alhaji Musa");
+  });
+
+  it("contains the solar status", () => {
+    expect(msg).toContain("Active");
+  });
+
+  it("mentions the BALANCE command as a next step", () => {
+    expect(msg).toContain("BALANCE");
+  });
+
+  it("works with a different status value", () => {
+    const msg2 = myPropertyInfo(
+      "Yaba Flats",
+      "22 Herbert Macaulay Way",
+      "Tunde Bello",
+      "Maintenance"
+    );
+    expect(msg2).toContain("Maintenance");
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- tenantRemoved -----------------------------------------------------------
+
+describe("tenantRemoved", () => {
+  const msg = tenantRemoved("Surulere Block A");
+
+  it("contains the property name", () => {
+    expect(msg).toContain("Surulere Block A");
+  });
+
+  it("confirms the tenant has been removed", () => {
+    expect(msg.toLowerCase()).toContain("removed");
+  });
+
+  it("confirms the tenant's solar access has been stopped", () => {
+    expect(msg.toLowerCase()).toContain("stopped");
+  });
+
+  it("confirms the tenant has been notified", () => {
+    expect(msg.toLowerCase()).toContain("notified");
+  });
+
+  it("is distinct from removedTenant() which names the tenant not the property", () => {
+    const byTenantName = removedTenant("Amaka Obi");
+    expect(msg).not.toEqual(byTenantName);
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- safeMessage -------------------------------------------------------------
+
+describe("safeMessage", () => {
+  it("returns the original string if it is within 4,096 characters", () => {
+    const short = "Hello, this is a normal message.";
+    expect(safeMessage(short)).toBe(short);
+  });
+
+  it("returns the original string when it is exactly 4,096 characters", () => {
+    const exact = "a".repeat(4096);
+    expect(safeMessage(exact)).toBe(exact);
+    expect(safeMessage(exact).length).toBe(4096);
+  });
+
+  it("truncates a string that exceeds 4,096 characters", () => {
+    const long = "a".repeat(5000);
+    const result = safeMessage(long);
+    expect(result.length).toBeLessThanOrEqual(4096);
+  });
+
+  it("appends '...' to a truncated string", () => {
+    const long = "a".repeat(5000);
+    expect(safeMessage(long).endsWith("...")).toBe(true);
+  });
+
+  it("truncates at exactly 4,090 characters before appending '...'", () => {
+    const long = "a".repeat(5000);
+    const result = safeMessage(long);
+    expect(result).toBe("a".repeat(4090) + "...");
+    expect(result.length).toBe(4093);
+  });
+
+  it("does not truncate a string of exactly 4,097 chars — confirms the boundary", () => {
+    const boundary = "a".repeat(4097);
+    const result = safeMessage(boundary);
+    expect(result.length).toBeLessThanOrEqual(4096);
+    expect(result.endsWith("...")).toBe(true);
+  });
+
+  it("handles an empty string without crashing", () => {
+    expect(safeMessage("")).toBe("");
+  });
+
+  it("wrapping any existing template still keeps it within 4,096 chars", () => {
+    const bigBreakdown = Array.from({ length: 50 }, (_, i) => ({
+      code: `GRD-LAG-${String(i).padStart(4, "0")}`,
+      amount: 10000 + i * 500,
+    }));
+    const potentiallyLong = earningsSummary(999999, bigBreakdown);
+    const safe = safeMessage(potentiallyLong);
+    expect(safe.length).toBeLessThanOrEqual(4096);
   });
 });
