@@ -27,9 +27,17 @@ import {
   propertyRegistered,
   alreadyRegistered,
   rolePrompt,
+  paymentInstructionsBankTransfer,
+  paymentInstructionsMobileMoney,
+  paymentInstructionsCrypto,
+  paymentConfirmed,
+  paymentExpired,
+  paymentFailed,
+  purchaseSMSConfirmation,
 } from "./index";
 
 const WHATSAPP_MAX_LENGTH = 4096;
+const SMS_MAX_LENGTH = 160;
 
 // --- welcomeMessage ----------------------------------------------------------
 
@@ -446,5 +454,230 @@ describe("rolePrompt", () => {
 
   it("is a non-empty string", () => {
     expect(msg.trim().length).toBeGreaterThan(0);
+  });
+});
+
+// --- paymentInstructionsBankTransfer -----------------------------------------
+
+describe("paymentInstructionsBankTransfer", () => {
+  const msg = paymentInstructionsBankTransfer(
+    "0123456789",
+    "Wema Bank",
+    "GRD-REF-00123",
+    2000,
+    15,
+    420
+  );
+
+  it("contains the account number", () => {
+    expect(msg).toContain("0123456789");
+  });
+
+  it("contains the bank name", () => {
+    expect(msg).toContain("Wema Bank");
+  });
+
+  it("contains the payment reference", () => {
+    expect(msg).toContain("GRD-REF-00123");
+  });
+
+  it("contains the NGN amount", () => {
+    expect(msg).toContain("2,000");
+  });
+
+  it("contains the expiry window", () => {
+    expect(msg).toContain("15");
+  });
+
+  it("contains the GRD amount the user will receive", () => {
+    expect(msg).toContain("420");
+  });
+
+  it("warns the user to include the reference in their narration", () => {
+    expect(msg.toLowerCase()).toContain("reference");
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- paymentInstructionsMobileMoney ------------------------------------------
+
+describe("paymentInstructionsMobileMoney", () => {
+  const msg = paymentInstructionsMobileMoney("OPay", "GRD-REF-00456", 5000);
+
+  it("contains the network name", () => {
+    expect(msg).toContain("OPay");
+  });
+
+  it("contains the payment reference", () => {
+    expect(msg).toContain("GRD-REF-00456");
+  });
+
+  it("contains the NGN amount", () => {
+    expect(msg).toContain("5,000");
+  });
+
+  it("works with a different network", () => {
+    const msg2 = paymentInstructionsMobileMoney(
+      "PalmPay",
+      "GRD-REF-00789",
+      1000
+    );
+    expect(msg2).toContain("PalmPay");
+    expect(msg2).toContain("GRD-REF-00789");
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- paymentInstructionsCrypto -----------------------------------------------
+
+describe("paymentInstructionsCrypto", () => {
+  const wallet = "TXyz1234abcd5678WXYZ9012efgh3456IJKL";
+  const msg = paymentInstructionsCrypto(wallet, 3.25, "GRD-REF-00999");
+
+  it("contains the wallet address", () => {
+    expect(msg).toContain(wallet);
+  });
+
+  it("contains the USDT amount", () => {
+    expect(msg).toContain("3.25");
+  });
+
+  it("contains the payment reference", () => {
+    expect(msg).toContain("GRD-REF-00999");
+  });
+
+  it("warns the user to send USDT only", () => {
+    expect(msg.toUpperCase()).toContain("USDT");
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- paymentConfirmed --------------------------------------------------------
+
+describe("paymentConfirmed", () => {
+  const msg = paymentConfirmed(420, 840, 12);
+
+  it("shows the GRD amount credited in this transaction", () => {
+    expect(msg).toContain("420");
+  });
+
+  it("shows the new total balance", () => {
+    expect(msg).toContain("840");
+  });
+
+  it("shows the kWh equivalent", () => {
+    expect(msg).toContain("12");
+  });
+
+  it("communicates success clearly", () => {
+    const lower = msg.toLowerCase();
+    expect(lower.includes("confirmed") || lower.includes("added")).toBe(true);
+  });
+
+  it("mentions the BALANCE command", () => {
+    expect(msg).toContain("BALANCE");
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- paymentExpired ----------------------------------------------------------
+
+describe("paymentExpired", () => {
+  const msg = paymentExpired();
+
+  it("tells the user the payment window has expired", () => {
+    expect(msg.toLowerCase()).toContain("expired");
+  });
+
+  it("reassures the user no money was deducted", () => {
+    const lower = msg.toLowerCase();
+    expect(
+      lower.includes("no money") ||
+        lower.includes("not been deducted") ||
+        lower.includes("no payment")
+    ).toBe(true);
+  });
+
+  it("tells the user to try again with BUY", () => {
+    expect(msg).toContain("BUY");
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+
+  it("is a non-empty string", () => {
+    expect(msg.trim().length).toBeGreaterThan(0);
+  });
+});
+
+// --- paymentFailed -----------------------------------------------------------
+
+describe("paymentFailed", () => {
+  const msg = paymentFailed("Insufficient funds");
+
+  it("contains the reason passed in", () => {
+    expect(msg).toContain("Insufficient funds");
+  });
+
+  it("reassures the user no money was deducted", () => {
+    const lower = msg.toLowerCase();
+    expect(
+      lower.includes("no money") || lower.includes("not been deducted")
+    ).toBe(true);
+  });
+
+  it("tells the user to try again with BUY", () => {
+    expect(msg).toContain("BUY");
+  });
+
+  it("works with a different reason string", () => {
+    const msg2 = paymentFailed("Transaction declined by bank");
+    expect(msg2).toContain("Transaction declined by bank");
+  });
+
+  it("stays within WhatsApp's 4,096-character limit for a typical reason string", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- purchaseSMSConfirmation -------------------------------------------------
+
+describe("purchaseSMSConfirmation", () => {
+  const msg = purchaseSMSConfirmation(420, 840, "*384*0#");
+
+  it("contains the GRD amount credited", () => {
+    expect(msg).toContain("420");
+  });
+
+  it("contains the new balance", () => {
+    expect(msg).toContain("840");
+  });
+
+  it("stays within the 160-character single SMS frame limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(SMS_MAX_LENGTH);
+  });
+
+  it("contains no WhatsApp markdown (no asterisks or underscores for formatting)", () => {
+    // Plain text only — formatting chars break SMS readability
+    expect(msg).not.toMatch(/\*[a-zA-Z ]+\*/); // no *bold text* (digit-only sequences like USSD codes are fine)
+    expect(msg).not.toMatch(/_[^_]+_/); // no _italic_
+  });
+
+  it("still fits within 160 chars with large GRD numbers", () => {
+    const bigMsg = purchaseSMSConfirmation(99999, 199999, "*384*0#");
+    expect(bigMsg.length).toBeLessThanOrEqual(SMS_MAX_LENGTH);
   });
 });

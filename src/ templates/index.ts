@@ -13,8 +13,6 @@
  * Consumed by: notificationService.ts -> WhatsApp sender / SMS fallback
  */
 
-// --- Day 1 Templates --------------------------------------------------------
-
 /**
  * Sent immediately after a user completes registration.
  * Role-aware: landlords and tenants receive different first-step guidance.
@@ -249,4 +247,174 @@ export function rolePrompt(): string {
     ``,
     `Reply with *1* or *2* to continue.`,
   ].join("\n");
+}
+
+/**
+ * Sent to a tenant after they choose "Bank Transfer" as their payment method.
+ * Contains everything they need to complete the transfer: account details,
+ * reference (MUST be included so the backend can match the payment),
+ * NGN amount, GRD they will receive, and a countdown before the window expires.
+ *
+ * @param accountNumber - The virtual account number generated for this transaction.
+ * @param bankName      - The bank holding the virtual account, e.g. "Wema Bank".
+ * @param reference     - Unique payment reference — tenant MUST use this as narration.
+ * @param amountNGN     - The exact NGN amount to transfer.
+ * @param expiryMins    - Minutes until the payment window closes (typically 15).
+ * @param grdAmount     - The GRD tokens the tenant will receive upon confirmation.
+ */
+export function paymentInstructionsBankTransfer(
+  accountNumber: string,
+  bankName: string,
+  reference: string,
+  amountNGN: number,
+  expiryMins: number,
+  grdAmount: number
+): string {
+  const formattedAmount = amountNGN.toLocaleString("en-NG");
+  return [
+    `🏦 *Bank Transfer Details*`,
+    ``,
+    `Transfer exactly *₦${formattedAmount}* to:`,
+    ``,
+    `🏛 *Bank:* ${bankName}`,
+    `💳 *Account Number:* ${accountNumber}`,
+    `📝 *Reference / Narration:* ${reference}`,
+    ``,
+    `⚠️ *Important:* You must use the reference above as your transfer narration so we can match your payment.`,
+    ``,
+    `You will receive *${grdAmount} GRD* once your payment is confirmed.`,
+    ``,
+    `⏳ This payment window expires in *${expiryMins} minutes*. After that, type *BUY [amount]* to start again.`,
+  ].join("\n");
+}
+
+/**
+ * Sent to a tenant after they choose "Mobile Money" as their payment method.
+ * Covers major Nigerian mobile money networks (OPay, PalmPay, Moniepoint, etc.)
+ *
+ * @param network    - The mobile money network, e.g. "OPay", "PalmPay".
+ * @param reference  - Unique payment reference — tenant MUST include this.
+ * @param amountNGN  - The exact NGN amount to send.
+ */
+export function paymentInstructionsMobileMoney(
+  network: string,
+  reference: string,
+  amountNGN: number
+): string {
+  const formattedAmount = amountNGN.toLocaleString("en-NG");
+  return [
+    `📱 *Mobile Money Payment*`,
+    ``,
+    `Send exactly *₦${formattedAmount}* via *${network}* to:`,
+    ``,
+    `📝 *Reference:* ${reference}`,
+    ``,
+    `Make sure to include the reference when sending so we can confirm your payment automatically.`,
+    ``,
+    `_We'll notify you as soon as your tokens are ready. ⚡_`,
+  ].join("\n");
+}
+
+/**
+ * Sent to a tenant after they choose "Crypto" as their payment method.
+ * Shows the USDT wallet address and equivalent amount.
+ * Wallet address is on its own line for easy long-press copying on mobile.
+ *
+ * @param walletAddress - The USDT (TRC-20 or ERC-20) wallet address for this transaction.
+ * @param amountUSDT    - The USDT equivalent of the NGN purchase amount.
+ * @param reference     - Unique reference the tenant should include in the memo/tag if supported.
+ */
+export function paymentInstructionsCrypto(
+  walletAddress: string,
+  amountUSDT: number,
+  reference: string
+): string {
+  return [
+    `🪙 *Crypto Payment (USDT)*`,
+    ``,
+    `Send exactly *${amountUSDT} USDT* to this wallet address:`,
+    ``,
+    `\`${walletAddress}\``,
+    ``,
+    `📝 *Reference / Memo:* ${reference}`,
+    ``,
+    `⚠️ *Send USDT only.* Sending any other token to this address may result in permanent loss of funds.`,
+    ``,
+    `_We'll credit your GRD tokens once the transaction confirms on-chain. ⚡_`,
+  ].join("\n");
+}
+
+/**
+ * Sent immediately after the backend confirms a successful payment webhook.
+ * This is the most important message in the entire flow — the user just paid real money.
+ * Should be warm, instant, and show all three key numbers: GRD added, new total, kWh.
+ *
+ * @param grdAmount     - GRD tokens credited in this transaction.
+ * @param newBalance    - The tenant's total GRD balance after this top-up.
+ * @param kwhEquivalent - Approximate kWh the new balance represents.
+ */
+export function paymentConfirmed(
+  grdAmount: number,
+  newBalance: number,
+  kwhEquivalent: number
+): string {
+  return [
+    `✅ *Payment confirmed! Your solar is topped up. ⚡*`,
+    ``,
+    `*+${grdAmount} GRD* has been added to your account.`,
+    ``,
+    `🔋 *New balance:* ${newBalance} GRD (≈ ${kwhEquivalent} kWh)`,
+    ``,
+    `_Enjoy the power! Type *BALANCE* anytime to check your remaining energy._`,
+  ].join("\n");
+}
+
+/**
+ * Sent when the 15-minute (or custom) payment window closes without a confirmed transfer.
+ * Does not blame the user — gives them a clean path to try again.
+ */
+export function paymentExpired(): string {
+  return [
+    `⏰ *Your payment window has expired.*`,
+    ``,
+    `No payment was received within the time limit. No money has been deducted from your account.`,
+    ``,
+    `Type *BUY [amount]* to start a new payment whenever you're ready.`,
+    ``,
+    `_e.g. BUY 2000 to top up with ₦2,000_`,
+  ].join("\n");
+}
+
+/**
+ * Sent when a payment attempt fails for a specific reason from the payment provider.
+ * The `reason` string comes from the backend — keep it short and user-friendly before passing it in.
+ *
+ * @param reason - A brief, human-readable explanation from the payment provider.
+ */
+export function paymentFailed(reason: string): string {
+  return [
+    `❌ *Payment unsuccessful.*`,
+    ``,
+    `Your payment could not be processed. Reason: _${reason}_`,
+    ``,
+    `No money has been deducted from your account. Type *BUY [amount]* to try again.`,
+    ``,
+    `_If the problem continues, please contact support._`,
+  ].join("\n");
+}
+
+/**
+ * SMS / USSD fallback confirmation — sent to users who completed a purchase via USSD.
+ * MUST stay under 160 characters (single SMS frame).
+ * No emoji, no bold, no WhatsApp formatting — plain text only.
+ *
+ * @param grdAmount  - GRD tokens credited in this transaction.
+ * @param newBalance - The tenant's total GRD balance after this top-up.
+ */
+export function purchaseSMSConfirmation(
+  grdAmount: number,
+  newBalance: number,
+  dialCode: string
+): string {
+  return `Gridee: +${grdAmount} GRD added. New balance: ${newBalance} GRD. Dial ${dialCode} to check your account.`;
 }

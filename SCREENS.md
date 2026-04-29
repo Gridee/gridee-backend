@@ -182,3 +182,29 @@ Sent automatically by `notificationService` — the user does not trigger these 
 | `PROPERTY_REGISTERED` | `propertyRegistered(code, label)` | "Property registered! Your code is [code]. Share it with your tenants." |
 
 ---
+
+### Payment Instructions
+
+| Screen ID                           | Template function                                                                                       | User-facing prompt / description                                                                |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `PAYMENT_INSTRUCTIONS_BANK`         | `paymentInstructionsBankTransfer(accountNumber, bankName, reference, amountNGN, expiryMins, grdAmount)` | Shows virtual account number, bank, reference, NGN amount, GRD to receive, and expiry countdown |
+| `PAYMENT_INSTRUCTIONS_MOBILE_MONEY` | `paymentInstructionsMobileMoney(network, reference, amountNGN)`                                         | Shows mobile money network, reference, and NGN amount to send                                   |
+| `PAYMENT_INSTRUCTIONS_CRYPTO`       | `paymentInstructionsCrypto(walletAddress, amountUSDT, reference)`                                       | Shows USDT wallet address, USDT amount, and reference/memo                                      |
+
+### Payment Outcomes
+
+| Screen ID           | Template function                                        | User-facing prompt / description                                                                    |
+| ------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `PAYMENT_CONFIRMED` | `paymentConfirmed(grdAmount, newBalance, kwhEquivalent)` | "Payment confirmed! +X GRD added. New balance: Y GRD (≈ Z kWh)." — triggered by Flutterwave webhook |
+| `PAYMENT_EXPIRED`   | `paymentExpired()`                                       | Payment window closed with no transfer received. Reassures user, prompts retry.                     |
+| `PAYMENT_FAILED`    | `paymentFailed(reason)`                                  | Payment provider returned a failure. Shows reason, reassures no deduction, prompts retry.           |
+
+### SMS / USSD
+
+| Screen ID                   | Template function                                | Channel  | User-facing message                                                            |
+| --------------------------- | ------------------------------------------------ | -------- | ------------------------------------------------------------------------------ |
+| `PURCHASE_SMS_CONFIRMATION` | `purchaseSMSConfirmation(grdAmount, newBalance)` | SMS only | Plain-text confirmation under 160 chars. No WhatsApp markdown. For USSD users. |
+
+> **Note:** `PURCHASE_SMS_CONFIRMATION` is the only template with a 160-char SMS limit constraint. All other templates target WhatsApp (4,096-char limit).
+
+---
