@@ -16,6 +16,7 @@
     "africastalking": "^0.7.9",
     "axios": "^1.15.2",
     "dotenv": "^17.4.2",
+    "ethers": "^6.16.0",
     "express": "^5.2.1",
     "ioredis": "^5.10.1",
     "knex": "^3.2.9",

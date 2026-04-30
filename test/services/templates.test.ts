@@ -1,18 +1,3 @@
-/**
- * src/templates/templates.test.ts
- *
- * Unit tests for the Gridee message template module.
- *
- * Test strategy:
- *  - Assert that output CONTAINS expected substrings, not that it equals a
- *    fixed string. This lets the copy evolve freely without breaking the
- *    suite, as long as the key information is still present.
- *  - Every template is also checked against WhatsApp's 4,096-char hard limit.
- *
- * Run:  npm test
- * Watch: npm run test:watch
- */
-
 import { describe, it, expect } from "vitest";
 import {
   welcomeMessage,
@@ -27,7 +12,7 @@ import {
   propertyRegistered,
   alreadyRegistered,
   rolePrompt,
-} from "./index";
+} from "../../src/services/templateService";
 
 const WHATSAPP_MAX_LENGTH = 4096;
 
@@ -328,8 +313,8 @@ describe("invalidOTP", () => {
     const lower = msg.toLowerCase();
     expect(
       lower.includes("incorrect") ||
-        lower.includes("doesn't match") ||
-        lower.includes("wrong")
+      lower.includes("doesn't match") ||
+      lower.includes("wrong")
     ).toBe(true);
   });
 
