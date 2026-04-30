@@ -46,7 +46,7 @@ import {
   myPropertyInfo,
   tenantRemoved,
   safeMessage,
-} from "./index";
+} from "../../src/services/templateService";
 
 const WHATSAPP_MAX_LENGTH = 4096;
 const SMS_MAX_LENGTH = 160;
