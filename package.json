@@ -1,0 +1,24 @@
+{
+  "name": "gridee-bot",
+  "version": "2.0.0",
+  "description": "Standalone WhatsApp bot service for Gridee, aligned with SCREENS.md screen IDs.",
+  "type": "module",
+  "main": "src/main.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "dev": "NODE_ENV=development node --watch src/main.js",
+    "test": "node --test src/tests/*.test.js",
+    "check": "node --check src/main.js && node --test src/tests/*.test.js"
+  },
+  "keywords": [
+    "gridee",
+    "whatsapp",
+    "twilio",
+    "meta",
+    "bot"
+  ],
+  "license": "UNLICENSED"
+}

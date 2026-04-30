@@ -1,0 +1,66 @@
+import { isScreenId } from '../core/screen-id.js';
+
+function nowMs() {
+  return Date.now();
+}
+
+export class InMemorySessionStore {
+  constructor({ ttlSeconds = 1800 } = {}) {
+    this.ttlMs = ttlSeconds * 1000;
+    this.sessions = new Map();
+  }
+
+  async get(phone) {
+    const entry = this.sessions.get(phone);
+    if (!entry) return null;
+    if (entry.expiresAt <= nowMs()) {
+      this.sessions.delete(phone);
+      return null;
+    }
+    return structuredClone(entry.value);
+  }
+
+  async set(phone, session) {
+    if (!session || !isScreenId(session.step)) {
+      throw new Error(`Invalid session step: ${session?.step}`);
+    }
+    const value = {
+      role: session.role ?? null,
+      activeCommand: session.activeCommand ?? null,
+      step: session.step,
+      data: session.data ?? {},
+      createdAt: session.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.sessions.set(phone, {
+      value,
+      expiresAt: nowMs() + this.ttlMs,
+    });
+    return structuredClone(value);
+  }
+
+  async clear(phone) {
+    this.sessions.delete(phone);
+  }
+}
+
+export class InMemoryIdempotencyStore {
+  constructor({ ttlSeconds = 86400 } = {}) {
+    this.ttlMs = ttlSeconds * 1000;
+    this.items = new Map();
+  }
+
+  async has(key) {
+    const entry = this.items.get(key);
+    if (!entry) return false;
+    if (entry.expiresAt <= nowMs()) {
+      this.items.delete(key);
+      return false;
+    }
+    return true;
+  }
+
+  async remember(key) {
+    this.items.set(key, { expiresAt: nowMs() + this.ttlMs });
+  }
+}
