@@ -2,6 +2,7 @@ import express from 'express';
 import * as dotenv from 'dotenv';
 import authRoutes from './routes/authRoutes';
 import propertyRoutes from './routes/propertyRoutes';
+import botRoutes from './routes/botRoutes';
 
 dotenv.config();
 
@@ -15,6 +16,7 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/properties', propertyRoutes);
+app.use('/bot', botRoutes); // Bot-facing routes consumed by gridee-bot
 
 // Health check endpoint
 app.get('/health', (req, res) => {
