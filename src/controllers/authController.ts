@@ -4,6 +4,7 @@ import { redis } from '../redis';
 import { db } from '../db';
 import { otpService } from '../services/otpService';
 import { contractService } from '../services/contractService';
+import { notificationService } from '../services/notificationService';
 import * as jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
@@ -105,6 +106,9 @@ export const authController = {
           property_id: pendingReg.propertyId,
           status: 'CONNECTED'
         });
+
+        // Notify the landlord about the new tenant
+        await notificationService.notifyLandlord(pendingReg.propertyId, newUser.name);
       }
 
       // Call contract service
