@@ -51,11 +51,20 @@ export async function up(knex: Knex): Promise<void> {
       table.text('message').notNullable();
       table.string('status', 50);
       table.timestamp('created_at').defaultTo(knex.fn.now());
+    })
+    .createTable('withdrawals', (table) => {
+      table.increments('id').primary();
+      table.integer('landlord_id').unsigned().references('id').inTable('users').notNullable();
+      table.decimal('amount_ngn', 15, 2).notNullable();
+      table.string('transfer_ref', 255).notNullable().unique();
+      table.string('status', 50).notNullable();
+      table.timestamp('created_at').defaultTo(knex.fn.now());
     });
 }
 
 export async function down(knex: Knex): Promise<void> {
   await knex.schema
+    .dropTableIfExists('withdrawals')
     .dropTableIfExists('notifications')
     .dropTableIfExists('meters')
     .dropTableIfExists('transactions')

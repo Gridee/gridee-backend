@@ -22,5 +22,37 @@ export const contractService = {
   async deductTokens(walletAddress: string, kwhUsed: number): Promise<void> {
     console.log(`Deducting ${kwhUsed} kWh worth of tokens from wallet ${walletAddress}`);
     // MVP mock implementation.
+  },
+
+  async getLandlordEarnings(
+    landlordWallet: string,
+    propertyCodes: string[]
+  ): Promise<{
+    totalNGN: number;
+    perProperty: Array<{ code: string; amountNGN: number }>;
+  }> {
+    console.log(`Reading earnings from RevenueDistributor for wallet ${landlordWallet}`);
+    // MVP mock implementation until RevenueDistributor contract integration is wired.
+    const perProperty = propertyCodes.map((code, index) => ({
+      code,
+      amountNGN: Number((5000 + index * 1250).toFixed(2))
+    }));
+
+    const totalNGN = Number(
+      perProperty.reduce((sum, item) => sum + item.amountNGN, 0).toFixed(2)
+    );
+
+    return { totalNGN, perProperty };
+  },
+
+  async getPropertyEarnings(
+    landlordWallet: string,
+    propertyCode: string
+  ): Promise<{ code: string; amountNGN: number }> {
+    console.log(
+      `Reading property earnings from RevenueDistributor for wallet ${landlordWallet}, property ${propertyCode}`
+    );
+    // MVP mock implementation.
+    return { code: propertyCode, amountNGN: 5000 };
   }
 };
