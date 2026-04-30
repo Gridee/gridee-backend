@@ -17,4 +17,8 @@ router.get('/properties/:code/validate', botController.validatePropertyCode);
 // Tenant registration (consumed by gridee-bot tenant flow)
 router.post('/tenants/register', botController.registerTenant);
 
+// Balance & History (consumed by bot/USSD handlers)
+router.get('/tenants/:phone/balance', botController.getTenantBalance);
+router.get('/tenants/:phone/history', botController.getTenantHistory);
+
 export default router;

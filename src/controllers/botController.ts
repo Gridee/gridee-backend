@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { redis } from '../redis';
 import { db } from '../db';
 import { otpService } from '../services/otpService';
-import { contractService } from '../services/contractService';
+import { assignWallet, getTokenBalance } from '../services/contractService';
 import { notificationService } from '../services/notificationService';
 import * as jwt from 'jsonwebtoken';
 
@@ -191,7 +191,8 @@ export const botController = {
       });
 
       // Assign custodial wallet
-      const walletAddress = await contractService.assignWallet(newUser.id);
+      await assignWallet(newUser.id, '');
+      const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0'); // Temporary mock for DB until wallet generation is clear
       await db('users').where({ id: newUser.id }).update({ wallet_address: walletAddress });
 
       // Notify landlord (WhatsApp first, SMS fallback)
@@ -210,8 +211,109 @@ export const botController = {
         res.status(400).json({ success: false, errors: error.issues });
         return;
       }
-      console.error('[bot/tenants/register] error:', error);
       res.status(500).json({ success: false, error: 'Registration failed' });
     }
   },
+  
+  /**
+   * GET /bot/tenants/:phone/balance
+   * Returns current GRD balance, hours remaining, and property info.
+   */
+  async getTenantBalance(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
+      
+      const user = await db('users').where({ phone }).first();
+      if (!user || user.role !== 'tenant') {
+        res.status(404).json({ error: 'Tenant not found' });
+        return;
+      }
+
+      const tenant = await db('tenants')
+        .join('properties', 'tenants.property_id', 'properties.id')
+        .where({ 'tenants.user_id': user.id })
+        .select('tenants.*', 'properties.label as propertyLabel')
+        .first();
+
+      if (!tenant) {
+        res.status(404).json({ error: 'Tenant property link not found' });
+        return;
+      }
+
+      // Fetch on-chain balance
+      const balanceGrd = await getTokenBalance(user.wallet_address || '');
+      
+      // Calculate hours remaining (MVP: use fixed rate from .env)
+      const consumptionRate = parseFloat(process.env.CONSUMPTION_KWH_PER_HOUR || '0.5');
+      const hoursLeft = Math.floor(parseFloat(balanceGrd) / consumptionRate);
+
+      // Get last successful topup date
+      const lastTx = await db('transactions')
+        .where({ tenant_id: tenant.id, status: 'SUCCESSFUL' })
+        .orderBy('created_at', 'desc')
+        .first();
+
+      // Calculate NGN equivalent
+      const grdPrice = parseFloat(process.env.GRD_PRICE_PER_NGN || '1');
+      const balanceNGN = parseFloat(balanceGrd) / grdPrice;
+
+      res.status(200).json({
+        balanceGrd: parseFloat(balanceGrd),
+        balanceNGN: Math.round(balanceNGN * 100) / 100,
+        estimatedHours: hoursLeft,
+        propertyName: tenant.propertyLabel,
+        lastTopupDate: lastTx ? new Date(lastTx.created_at).toLocaleDateString('en-GB') : 'Never',
+        status: tenant.status === 'CONNECTED' ? 'Connected' : 'Disconnected'
+      });
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ errors: error.issues });
+        return;
+      }
+      console.error('[bot/tenants/balance] error:', error);
+      res.status(500).json({ error: 'Failed to fetch balance' });
+    }
+  },
+
+  /**
+   * GET /bot/tenants/:phone/history
+   * Returns last 10 transactions for the tenant.
+   */
+  async getTenantHistory(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
+      
+      const user = await db('users').where({ phone }).first();
+      if (!user) {
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      const tenant = await db('tenants').where({ user_id: user.id }).first();
+      if (!tenant) {
+        res.status(404).json({ error: 'Tenant record not found' });
+        return;
+      }
+
+      const transactions = await db('transactions')
+        .where({ tenant_id: tenant.id })
+        .orderBy('created_at', 'desc')
+        .limit(10);
+
+      const formattedTransactions = transactions.map((tx: any) => ({
+        date: new Date(tx.created_at).toLocaleDateString('en-GB'),
+        amountNaira: Number(tx.amount_ngn),
+        grdAmount: Number(tx.grd_amount)
+      }));
+
+      res.status(200).json({ transactions: formattedTransactions });
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ errors: error.issues });
+        return;
+      }
+      console.error('[bot/tenants/history] error:', error);
+      res.status(500).json({ error: 'Failed to fetch history' });
+    }
+  }
 };

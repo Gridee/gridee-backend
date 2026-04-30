@@ -637,6 +637,87 @@ export function tenantRemoved(propertyName: string): string {
 }
 
 /**
+ * Shown to a tenant when they send the BALANCE command.
+ * Displays current GRD balance, estimated hours remaining, and property name.
+ *
+ * @param balance       - Current on-chain GRD balance.
+ * @param hoursLeft     - Estimated hours of usage remaining.
+ * @param propertyLabel - Name of the property they are registered under.
+ * @param lastTopup     - Date of the last successful top-up.
+ */
+export function balanceView(
+  balance: number,
+  hoursLeft: number,
+  propertyLabel: string,
+  lastTopup: string
+): string {
+  return `Your Gridee balance: ${balance} GRD ≈ ${hoursLeft} hours of average usage. Property: ${propertyLabel}. Last topped up: ${lastTopup}.`;
+}
+
+/**
+ * Shown to a tenant when they send the HISTORY command.
+ * Lists the last 10 purchase transactions.
+ *
+ * @param transactions - List of recent transactions.
+ */
+export function historyView(
+  transactions: Array<{ date: string; amountNaira: number; grdAmount: number }>
+): string {
+  if (transactions.length === 0) {
+    return "📜 *Transaction History*\n\nYou haven't made any purchases yet.";
+  }
+
+  const lines = transactions.map(
+    (tx) => `• ${tx.date} — ₦${tx.amountNaira.toLocaleString("en-NG")} — +${tx.grdAmount} GRD`
+  );
+
+  return `Recent transactions:\n\n${lines.join("\n")}`;
+}
+
+/**
+ * USSD version of the balance screen.
+ * MUST stay under 182 characters and be very concise.
+ *
+ * @param balance       - Current GRD balance.
+ * @param kwh           - kWh equivalent.
+ * @param lastTopup     - Date of last top-up (DD/MM/YY).
+ * @param status        - Connection status.
+ */
+export function ussdBalance(
+  balance: number,
+  kwh: number,
+  lastTopup: string,
+  status: string
+): string {
+  return [
+    `Your Gridee balance:`,
+    `${balance} GRD (≈ ${kwh} kWh)`,
+    `Last topped up: ${lastTopup}`,
+    `Status: ${status} ${status === "Connected" ? "✅" : "⚠️"}`,
+  ].join("\n");
+}
+
+/**
+ * USSD version of the history screen.
+ * Shows last 5 transactions only. 182-character limit.
+ *
+ * @param transactions - List of recent transactions (max 5).
+ */
+export function ussdHistory(
+  transactions: Array<{ date: string; amountNaira: number; grdAmount: number }>
+): string {
+  if (transactions.length === 0) {
+    return "No transactions found. Type BUY to start.";
+  }
+
+  const lines = transactions.slice(0, 5).map(
+    (tx, i) => `${i + 1}. ₦${tx.amountNaira} → ${tx.grdAmount}GRD (${tx.date})`
+  );
+
+  return lines.join("\n");
+}
+
+/**
  * Safety wrapper — truncates any message that exceeds WhatsApp's 4,096-character limit.
  * Should be the last step before every send() call.
  *

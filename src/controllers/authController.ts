@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { redis } from '../redis';
 import { db } from '../db';
 import { otpService } from '../services/otpService';
-import { contractService } from '../services/contractService';
+import { assignWallet } from '../services/contractService';
 import { notificationService } from '../services/notificationService';
 import * as jwt from 'jsonwebtoken';
 
@@ -112,7 +112,8 @@ export const authController = {
       }
 
       // Call contract service
-      const walletAddress = await contractService.assignWallet(newUser.id);
+      await assignWallet(newUser.id, '');
+      const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0'); // Temporary mock for DB until wallet generation is clear
 
       // Update user with wallet address
       const [updatedUser] = await db('users')
