@@ -96,9 +96,9 @@ export const ussdController = {
         .orderBy('created_at', 'desc')
         .limit(5);
 
-      const txList = transactions.map(tx => ({
+      const txList = transactions.map((tx: any) => ({
         date: new Date(tx.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }),
-        amountNGN: Number(tx.amount_ngn),
+        amountNaira: Number(tx.amount_ngn),
         grdAmount: Number(tx.grd_amount)
       }));
 
