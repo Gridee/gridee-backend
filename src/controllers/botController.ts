@@ -17,6 +17,62 @@ const JWT_SECRET = process.env.JWT_SECRET as string;
 export const botController = {
 
   /**
+   * POST /bot/users/resolve
+   * Body: { phone }
+   * Looks up an existing user by phone number.
+   * Returns { user } or { user: null } if not found.
+   * Called by the bot-router on every inbound message to determine session context.
+   */
+  async resolveUser(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.body);
+      const user = await db('users').where({ phone }).first() ?? null;
+      res.status(200).json({ user });
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ errors: error.issues });
+        return;
+      }
+      console.error('[bot/users/resolve] error:', error);
+      res.status(500).json({ error: 'Failed to resolve user' });
+    }
+  },
+
+  /**
+   * PATCH /bot/users/role
+   * Body: { phone, role }
+   * Pre-assigns a role ('landlord' | 'tenant') before registration begins.
+   * Creates a placeholder user record if one doesn't yet exist.
+   * Returns { user }
+   */
+  async setUserRole(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone, role } = z.object({
+        phone: z.string().min(7),
+        role: z.enum(['landlord', 'tenant']),
+      }).parse(req.body);
+
+      const existing = await db('users').where({ phone }).first();
+      if (existing) {
+        const [updated] = await db('users').where({ phone }).update({ role }).returning('*');
+        res.status(200).json({ user: updated });
+        return;
+      }
+
+      // No record yet — create a shell user so the session can proceed
+      const [newUser] = await db('users').insert({ phone, role, name: null }).returning('*');
+      res.status(200).json({ user: newUser });
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ errors: error.issues });
+        return;
+      }
+      console.error('[bot/users/role] error:', error);
+      res.status(500).json({ error: 'Failed to set user role' });
+    }
+  },
+
+  /**
    * POST /bot/otp/send
    * Body: { phone, purpose }
    * Sends an OTP to the given phone number.

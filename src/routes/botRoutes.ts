@@ -3,6 +3,10 @@ import { botController } from '../controllers/botController';
 
 const router = Router();
 
+// User resolution & role (called by bot-router on every inbound message)
+router.post('/users/resolve', botController.resolveUser);
+router.patch('/users/role', botController.setUserRole);
+
 // OTP routes (consumed by gridee-bot)
 router.post('/otp/send', botController.sendOtp);
 router.post('/otp/verify', botController.verifyOtp);
