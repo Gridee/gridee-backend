@@ -4,6 +4,7 @@ import { redis } from '../redis';
 import { db } from '../db';
 import { sendOTP, verifyOTP } from '../services/otpService';
 import { contractService } from '../services/contractService';
+import { privyService } from '../services/privyService';
 import * as jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
@@ -74,8 +75,9 @@ export const authController = {
         role: pendingReg.role
       }).returning('*');
 
-      // Call contract service
-      const walletAddress = await contractService.assignWallet(newUser.id);
+      // Create an embedded wallet (Privy) off-chain, then map it on-chain.
+      const walletAddress = await privyService.createEmbeddedWallet(newUser.id);
+      await contractService.assignWallet(newUser.id, walletAddress);
 
       // Update user with wallet address
       const [updatedUser] = await db('users')

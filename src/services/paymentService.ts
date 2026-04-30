@@ -2,6 +2,7 @@ import axios from 'axios';
 import { db } from '../db';
 import { contractService } from './contractService';
 import { notificationService } from './notificationService';
+import { TRANSACTION_STATUS } from '../constants/transactionStatus';
 
 type PaymentMethod = 'bank_transfer' | 'mobile_money' | 'crypto';
 
@@ -55,7 +56,7 @@ export const paymentService = {
         grd_amount: grdAmount,
         payment_method: input.method,
         payment_ref: paymentRef,
-        status: 'PENDING'
+        status: TRANSACTION_STATUS.PENDING
       })
       .returning(['id', 'payment_ref']);
 
@@ -115,8 +116,15 @@ export const paymentService = {
       return { processed: false };
     }
 
-    if (transaction.status === 'COMPLETED') {
+    if (transaction.status === TRANSACTION_STATUS.COMPLETED) {
       return { processed: true };
+    }
+
+    if (
+      transaction.status !== TRANSACTION_STATUS.PENDING &&
+      transaction.status !== TRANSACTION_STATUS.PROCESSING
+    ) {
+      return { processed: false };
     }
 
     const tenant = await db('tenants')
@@ -136,12 +144,24 @@ export const paymentService = {
       throw new Error('Tenant wallet not found');
     }
 
-    await contractService.mintTokens(tenant.wallet_address, Number(transaction.grd_amount));
+    await db('transactions')
+      .where({ id: transaction.id })
+      .update({ status: TRANSACTION_STATUS.PROCESSING });
 
-    await db('transactions').where({ id: transaction.id }).update({ status: 'COMPLETED' });
+    try {
+      await contractService.mintTokens(tenant.wallet_address, Number(transaction.grd_amount));
+      await db('transactions')
+        .where({ id: transaction.id })
+        .update({ status: TRANSACTION_STATUS.COMPLETED });
+    } catch (error) {
+      await db('transactions')
+        .where({ id: transaction.id })
+        .update({ status: TRANSACTION_STATUS.FAILED });
+      throw error;
+    }
 
     const completedRows = await db('transactions')
-      .where({ tenant_id: transaction.tenant_id, status: 'COMPLETED' })
+      .where({ tenant_id: transaction.tenant_id, status: TRANSACTION_STATUS.COMPLETED })
       .select('grd_amount');
 
     const newBalance = completedRows.reduce((sum, row) => sum + Number(row.grd_amount), 0);

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { db } from '../db';
+import { TRANSACTION_STATUS } from '../constants/transactionStatus';
 
 type BankDetails = {
   accountNumber: string;
@@ -46,7 +47,7 @@ export const transferService = {
       landlord_id: landlordId,
       amount_ngn: amountNGN,
       transfer_ref: transferRef,
-      status: 'PENDING'
+      status: TRANSACTION_STATUS.PENDING
     });
 
     return { transferReference: transferRef };

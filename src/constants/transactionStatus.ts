@@ -1,0 +1,10 @@
+export const TRANSACTION_STATUS = {
+  PENDING: 'PENDING',
+  PROCESSING: 'PROCESSING',
+  COMPLETED: 'COMPLETED',
+  FAILED: 'FAILED',
+  CANCELLED: 'CANCELLED'
+} as const;
+
+export type TransactionStatus =
+  (typeof TRANSACTION_STATUS)[keyof typeof TRANSACTION_STATUS];
