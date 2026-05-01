@@ -141,49 +141,24 @@ export const botController = {
     }
   },
 
-
-
   /**
-   * POST /bot/properties
-   * Body: { phone, address, flatCount, label }
+   * GET /bot/users/:phone/help
+   * Returns the user's role to determine which HELP template to show.
    */
-  async createProperty(req: Request, res: Response): Promise<void> {
+  async getHelp(req: Request, res: Response): Promise<void> {
     try {
-      const { phone, address, flatCount, label } = z.object({
-        phone: z.string().min(7),
-        address: z.string().min(5),
-        flatCount: z.number().int().positive(),
-        label: z.string().min(2),
-      }).parse(req.body);
+      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
+      const user = await db('users').where({ phone }).first();
 
-      const user = await db('users').where({ phone, role: 'landlord' }).first();
       if (!user) {
-        res.status(404).json({ error: 'Landlord not found' });
+        res.status(404).json({ error: 'User not found' });
         return;
       }
 
-      // Generate property code: GRD-{STATE}-{sequence}
-      // For MVP, we'll use LAG (Lagos) and a random 4-digit number or sequence
-      const sequence = Math.floor(1000 + Math.random() * 9000);
-      const code = `GRD-LAG-${sequence}`;
-
-      const [property] = await db('properties').insert({
-        landlord_id: user.id,
-        code,
-        label,
-        address,
-        flat_count: flatCount,
-        status: 'ACTIVE'
-      }).returning('*');
-
-      res.status(201).json({ property });
+      res.status(200).json({ role: user.role });
     } catch (error: any) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({ errors: error.issues });
-        return;
-      }
-      console.error('[bot/properties/create] error:', error);
-      res.status(500).json({ error: 'Failed to create property' });
+      console.error('[bot/help] error:', error);
+      res.status(500).json({ error: 'Failed to fetch help context' });
     }
   },
 
@@ -309,7 +284,7 @@ export const botController = {
       res.status(500).json({ success: false, error: 'Registration failed' });
     }
   },
-  
+
   /**
    * GET /bot/tenants/:phone/balance
    * Returns current GRD balance, hours remaining, and property info.
@@ -409,6 +384,49 @@ export const botController = {
       }
       console.error('[bot/tenants/history] error:', error);
       res.status(500).json({ error: 'Failed to fetch history' });
+    }
+  },
+
+  /**
+   * GET /bot/tenants/:phone/property
+   * Returns details of the property the tenant is registered under.
+   */
+  async getTenantProperty(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
+      const user = await db('users').where({ phone, role: 'tenant' }).first();
+
+      if (!user) {
+        res.status(404).json({ error: 'Tenant not found' });
+        return;
+      }
+
+      const tenantRecord = await db('tenants')
+        .join('properties', 'tenants.property_id', 'properties.id')
+        .join('users as landlords', 'properties.landlord_id', 'landlords.id')
+        .where({ 'tenants.user_id': user.id })
+        .select(
+          'properties.label',
+          'properties.address',
+          'landlords.name as landlordName',
+          'tenants.status'
+        )
+        .first();
+
+      if (!tenantRecord) {
+        res.status(404).json({ error: 'Property link not found' });
+        return;
+      }
+
+      res.status(200).json({
+        label: tenantRecord.label,
+        address: tenantRecord.address,
+        landlordName: tenantRecord.landlordName,
+        status: tenantRecord.status === 'CONNECTED' ? 'Connected ✅' : 'Disconnected ⚠️'
+      });
+    } catch (error: any) {
+      console.error('[bot/tenants/property] error:', error);
+      res.status(500).json({ error: 'Failed to fetch property details' });
     }
   },
 
@@ -652,35 +670,188 @@ export const botController = {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
       const { amount } = z.object({ amount: z.number().positive() }).parse(req.body);
 
-      const user = await db('users').where({ phone }).first();
-      if (!user || user.role !== 'landlord') {
+      const landlord = await db('users').where({ phone, role: 'landlord' }).first();
+      if (!landlord) {
         res.status(404).json({ error: 'Landlord not found' });
         return;
       }
 
-      if (!user.account_number) {
+      if (!landlord.account_number) {
         res.status(400).json({ error: 'Bank details missing' });
         return;
       }
 
       // Record withdrawal
       const [withdrawal] = await db('withdrawals').insert({
-        landlord_id: user.id,
+        landlord_id: landlord.id,
         amount,
-        bank_name: user.bank_name,
-        account_number: user.account_number,
+        bank_name: landlord.bank_name,
+        account_number: landlord.account_number,
         status: 'PENDING'
       }).returning('*');
 
       res.status(201).json({
         success: true,
         amount,
-        bankName: user.bank_name,
-        bankLast4: user.account_number.slice(-4)
+        bankName: landlord.bank_name,
+        bankLast4: landlord.account_number.slice(-4)
       });
     } catch (error: any) {
       console.error('[bot/landlord/withdraw] error:', error);
       res.status(500).json({ error: 'Failed to initiate withdrawal' });
     }
-  }
+  },
+
+  /**
+   * POST /bot/landlords/:phone/remove-tenant
+   * Body: { tenantPhone }
+   */
+  async removeTenant(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
+      const { tenantPhone } = z.object({ tenantPhone: z.string().min(7) }).parse(req.body);
+
+      const landlord = await db('users').where({ phone, role: 'landlord' }).first();
+      if (!landlord) {
+        res.status(404).json({ error: 'Landlord not found' });
+        return;
+      }
+
+      const tenantUser = await db('users').where({ phone: tenantPhone, role: 'tenant' }).first();
+      if (!tenantUser) {
+        res.status(404).json({ error: 'Tenant not found' });
+        return;
+      }
+
+      const tenantRecord = await db('tenants')
+        .join('properties', 'tenants.property_id', 'properties.id')
+        .where({
+          'tenants.user_id': tenantUser.id,
+          'properties.landlord_id': landlord.id
+        })
+        .select('tenants.id', 'properties.label as propertyLabel')
+        .first();
+
+      if (!tenantRecord) {
+        res.status(403).json({ error: 'Tenant not registered under your properties' });
+        return;
+      }
+
+      await db('tenants').where({ id: tenantRecord.id }).update({ status: 'DISCONNECTED' });
+
+      res.status(200).json({
+        success: true,
+        tenantName: tenantUser.name,
+        propertyName: tenantRecord.propertyLabel
+      });
+    } catch (error: any) {
+      console.error('[bot/landlord/remove-tenant] error:', error);
+      res.status(500).json({ error: 'Failed to remove tenant' });
+    }
+  },
+
+  /**
+   * GET /bot/sessions/:phone
+   */
+  async getSession(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
+      const data = await redis.get(`bot_session:${phone}`);
+      res.status(200).json({ session: data ? JSON.parse(data) : null });
+    } catch (error: any) {
+      console.error('[bot/session/get] error:', error);
+      res.status(500).json({ error: 'Failed to fetch session' });
+    }
+  },
+
+  /**
+   * POST /bot/sessions/:phone
+   * Body: { step, data }
+   */
+  async updateSession(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
+      const { step, data } = z.object({
+        step: z.string(),
+        data: z.record(z.string(), z.any()).optional()
+      }).parse(req.body);
+
+      const existingStr = await redis.get(`bot_session:${phone}`);
+      const existing = existingStr ? JSON.parse(existingStr) : { data: {} };
+
+      const newSession = {
+        step,
+        data: { ...existing.data, ...(data || {}) }
+      };
+
+      await redis.set(`bot_session:${phone}`, JSON.stringify(newSession), 'EX', 3600); // 1 hour TTL
+      res.status(200).json({ success: true, session: newSession });
+    } catch (error: any) {
+      console.error('[bot/session/update] error:', error);
+      res.status(500).json({ error: 'Failed to update session' });
+    }
+  },
+
+  /**
+   * DELETE /bot/sessions/:phone
+   */
+  async clearSession(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
+      await redis.del(`bot_session:${phone}`);
+      res.status(200).json({ success: true });
+    } catch (error: any) {
+      console.error('[bot/session/clear] error:', error);
+      res.status(500).json({ error: 'Failed to clear session' });
+    }
+  },
+
+  /**
+   * POST /bot/properties
+   * Body: { phone, address, flatCount, label }
+   * Final step of the ADD PROPERTY flow.
+   */
+  async createProperty(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone, address, flatCount, label } = z.object({
+        phone: z.string().min(7),
+        address: z.string().min(5),
+        flatCount: z.number().int().positive(),
+        label: z.string().min(2),
+      }).parse(req.body);
+
+      const landlord = await db('users').where({ phone, role: 'landlord' }).first();
+      if (!landlord) {
+        res.status(404).json({ error: 'Landlord not found' });
+        return;
+      }
+
+      // Generate a unique Property Code (GRD-XXXX)
+      let isUnique = false;
+      let code = '';
+      while (!isUnique) {
+        code = `GRD-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+        const existing = await db('properties').where({ code }).first();
+        if (!existing) isUnique = true;
+      }
+
+      const [property] = await db('properties').insert({
+        landlord_id: landlord.id,
+        code,
+        label,
+        address,
+        flat_count: flatCount,
+        status: 'ACTIVE'
+      }).returning('*');
+
+      res.status(201).json({
+        success: true,
+        code: property.code,
+        label: property.label
+      });
+    } catch (error: any) {
+      console.error('[bot/properties/create] error:', error);
+      res.status(500).json({ error: 'Failed to create property' });
+    }
+  },
 };
