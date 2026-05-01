@@ -31,4 +31,16 @@ router.get('/landlords/:phone/bank-details', botController.getBankDetails);
 router.post('/landlords/:phone/bank-details', botController.saveBankDetails);
 router.post('/landlords/:phone/withdrawals', botController.initiateWithdrawal);
 
+// Balance, History & Property (consumed by bot/USSD handlers)
+router.get('/users/:phone/help', botController.getHelp);
+router.get('/tenants/:phone/property', botController.getTenantProperty);
+
+// Landlord Commands
+router.post('/landlords/:phone/remove-tenant', botController.removeTenant);
+
+// Session management for stateful flows
+router.get('/sessions/:phone', botController.getSession);
+router.post('/sessions/:phone', botController.updateSession);
+router.delete('/sessions/:phone', botController.clearSession);
+
 export default router;

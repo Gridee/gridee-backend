@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "commonjs",
+    "module": "nodenext",
     "lib": [
       "ES2020"
     ],
@@ -11,14 +11,13 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node",
-    "ignoreDeprecations": "6.0",
+    "moduleResolution": "nodenext",
     "allowSyntheticDefaultImports": true,
     "sourceMap": true,
     "declaration": true
   },
   "ts-node": {
-    "ignoreDiagnostics": [5107]
+    "ignoreDiagnostics": []
   },
   "include": [
     "src/**/*",
