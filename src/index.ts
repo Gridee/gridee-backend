@@ -2,7 +2,9 @@ import express from 'express';
 import * as dotenv from 'dotenv';
 import authRoutes from './routes/authRoutes';
 import propertyRoutes from './routes/propertyRoutes';
+import tenantRoutes from './routes/tenantRoutes';
 import botRoutes from './routes/botRoutes';
+import ussdRoutes from './routes/ussdRoutes';
 
 dotenv.config();
 
@@ -16,6 +18,8 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/properties', propertyRoutes);
+app.use('/api/tenants', tenantRoutes);
+app.use('/api/ussd', ussdRoutes);
 app.use('/bot', botRoutes); // Bot-facing routes consumed by gridee-bot
 
 // Health check endpoint
