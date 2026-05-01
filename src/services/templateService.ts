@@ -619,6 +619,33 @@ export function myPropertyInfo(
 }
 
 /**
+ * Prompt for the first step of the ADD PROPERTY flow.
+ */
+export function addPropertyAddressPrompt(): string {
+  return "🏠 *Register New Property*\n\nPlease enter the full property address (street, area, and state):";
+}
+
+/**
+ * Prompt for the second step of the ADD PROPERTY flow.
+ */
+export function addPropertyFlatsPrompt(): string {
+  return "👥 *How many rentable flats/units are in this compound?*\n\nReply with a number (e.g. 4):";
+}
+
+/**
+ * Prompt for the final step of the ADD PROPERTY flow.
+ *
+ * @param address - The address entered in the first step.
+ */
+export function addPropertyLabelPrompt(address: string): string {
+  return [
+    `📍 *Address:* ${address}`,
+    ``,
+    `Great! Now give this property a short name (e.g. *Surulere Block A*) so you can easily identify it:`,
+  ].join("\n");
+}
+
+/**
  * Sent to the LANDLORD after a tenant is removed from one of their properties.
  * Confirms the specific property the tenant was removed from.
  * Distinct from removedTenant() which names the tenant — this one names the property.
