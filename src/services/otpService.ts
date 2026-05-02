@@ -4,10 +4,6 @@ import crypto from 'crypto';
 
 export const otpService = {
   async generateOTP(phone?: string): Promise<string> {
-    // If it's an internal test number, return 123456
-    if (phone && (phone.includes('8000000000') || phone.includes('8000000001'))) {
-      return '123456';
-    }
     return crypto.randomInt(100000, 999999).toString();
   },
 

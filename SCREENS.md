@@ -109,6 +109,7 @@
 | `EARNINGS_OVERVIEW`    | "Total earnings: ₦X across Y properties." + per-property breakdown                  |
 | `EARNINGS_PROPERTY`    | Earnings detail for a single property                                               |
 | `WITHDRAW_BANK_INPUT`  | "Where should we send your funds? (1) Bank Account (2) OPay (3) PalmPay"            |
+| `WITHDRAW_ACCOUNT_INPUT` | "Enter your 10-digit account number:"                                              |
 | `WITHDRAW_CONFIRM`     | "Withdraw ₦X to [Bank] \*\*\*\*[last 4]? Reply CONFIRM to proceed."                 |
 | `WITHDRAWAL_INITIATED` | "₦X is being transferred to [Bank] \*\*\*\*[last 4]. Should arrive within 2 hours." |
 
