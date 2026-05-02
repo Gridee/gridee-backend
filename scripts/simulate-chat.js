@@ -2,8 +2,10 @@ import fs from 'fs';
 
 const BOT_URL = 'http://localhost:4100/webhooks/whatsapp';
 const phone = 'whatsapp:+2348000000000';
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function sendMessage(text, fromPhone = phone) {
+  await sleep(1000); // 1s delay
   console.log(`\nYou (${fromPhone.replace('whatsapp:', '')})> ${text}`);
   const params = new URLSearchParams();
   params.append('From', fromPhone);
@@ -37,7 +39,7 @@ async function sendMessage(text, fromPhone = phone) {
 
 async function runTest() {
   console.log('--- Gridee Bot Automated Regression ---');
-  
+
   // 1. Onboarding & Registration
   await sendMessage('CANCEL');
   await sendMessage('START');
@@ -73,7 +75,7 @@ async function runTest() {
   // Tenant Commands
   await sendMessage('MY PROPERTY', tenantPhone);
   await sendMessage('HELP', tenantPhone);
-  
+
   console.log('\n--- Regression Complete ---');
 }
 
