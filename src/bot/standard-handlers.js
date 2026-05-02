@@ -27,8 +27,20 @@ export class StandardHandlers {
     }
 
     if (parsed.command === Command.EARNINGS) {
+      if (parsed.args.propertyCode) {
+        const result = await this.backend.getLandlordPropertyEarnings({ phone, code: parsed.args.propertyCode });
+        return reply(renderScreen(ScreenId.EARNINGS_PROPERTY, {
+          code: result.code,
+          amount: result.amount,
+          purchases: result.purchaseCount,
+        }));
+      }
       const result = await this.backend.getLandlordEarnings({ phone });
-      return reply(renderScreen(ScreenId.EARNINGS_OVERVIEW, result.earnings));
+      return reply(renderScreen(ScreenId.EARNINGS_OVERVIEW, {
+        totalEarnings: result.total,
+        propertyCount: result.breakdown.length,
+        breakdown: result.breakdown,
+      }));
     }
 
     if (parsed.command === Command.BALANCE) {
@@ -43,7 +55,7 @@ export class StandardHandlers {
 
     if (parsed.command === Command.MY_PROPERTY) {
       const result = await this.backend.getTenantProperty({ phone });
-      return reply(renderScreen(ScreenId.MY_PROPERTY_VIEW, result.property));
+      return reply(renderScreen(ScreenId.MY_PROPERTY_VIEW, result));
     }
 
     if (parsed.command === Command.REMOVE_TENANT) {

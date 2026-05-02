@@ -27,79 +27,84 @@ export class BotRouter {
   }
 
   async handleInbound(message) {
-    const dedupeKey = `${message.provider}:${message.providerMessageId || `${message.phone}:${message.text}`}`;
-    if (await this.idempotencyStore.has(dedupeKey)) {
-      this.logger.debug('Duplicate inbound message ignored', { dedupeKey });
-      return noReply();
-    }
-    await this.idempotencyStore.remember(dedupeKey);
+    try {
+      const dedupeKey = `${message.provider}:${message.providerMessageId || `${message.phone}:${message.text}`}`;
+      if (await this.idempotencyStore.has(dedupeKey)) {
+        this.logger.debug('Duplicate inbound message ignored', { dedupeKey });
+        return noReply();
+      }
+      await this.idempotencyStore.remember(dedupeKey);
 
-    const phone = message.phone;
-    const text = message.text;
-    const parsed = parseCommand(text);
+      const phone = message.phone;
+      const text = message.text;
+      const parsed = parseCommand(text);
 
-    if (parsed.command === Command.CANCEL) {
-      await this.sessionStore.clear(phone);
-      return reply('Flow cancelled. Type HELP to see your options.');
-    }
+      if (parsed.command === Command.CANCEL) {
+        await this.sessionStore.clear(phone);
+        return reply('Flow cancelled. Type HELP to see your options.');
+      }
 
-    const session = await this.sessionStore.get(phone);
+      const session = await this.sessionStore.get(phone);
 
-    if (parsed.command === Command.START) {
-      return this.onboardingFlow.start(phone);
-    }
+      if (parsed.command === Command.START) {
+        return this.onboardingFlow.start(phone);
+      }
 
-    if (session?.activeCommand === ActiveCommand.ROLE_SELECT) {
-      return this.onboardingFlow.handleRoleSelection({ phone, parsed });
-    }
-
-    if (session) {
-      return this.continueActiveFlow({ phone, text, parsed, session });
-    }
-
-    const { user } = await this.backend.resolveUser(phone);
-
-    if (!user) {
-      if (parsed.command === Command.ROLE_LANDLORD) {
+      if (session?.activeCommand === ActiveCommand.ROLE_SELECT) {
         return this.onboardingFlow.handleRoleSelection({ phone, parsed });
       }
-      if (parsed.command === Command.ROLE_TENANT) {
-        return this.onboardingFlow.handleRoleSelection({ phone, parsed });
+
+      if (session) {
+        return this.continueActiveFlow({ phone, text, parsed, session });
       }
-      if (parsed.command === Command.REGISTER && parsed.args.propertyCode) {
-        await this.backend.setUserRole({ phone, role: 'tenant' });
-        return this.tenantRegisterFlow.begin(phone, parsed.args.propertyCode);
+
+      const { user } = await this.backend.resolveUser(phone);
+
+      if (!user) {
+        if (parsed.command === Command.ROLE_LANDLORD) {
+          return this.onboardingFlow.handleRoleSelection({ phone, parsed });
+        }
+        if (parsed.command === Command.ROLE_TENANT) {
+          return this.onboardingFlow.handleRoleSelection({ phone, parsed });
+        }
+        if (parsed.command === Command.REGISTER && parsed.args.propertyCode) {
+          await this.backend.setUserRole({ phone, role: 'tenant' });
+          return this.tenantRegisterFlow.begin(phone, parsed.args.propertyCode);
+        }
+        return this.onboardingFlow.start(phone);
       }
-      return this.onboardingFlow.start(phone);
+
+      if (parsed.command === Command.REGISTER) {
+        return reply(renderScreen(ScreenId.ERROR_ALREADY_REGISTERED));
+      }
+
+      if (parsed.command === Command.ADD_PROPERTY) {
+        if (user.role !== 'landlord') return reply('Only landlords can add properties. Type HELP to see your options.');
+        return this.addPropertyFlow.begin(phone);
+      }
+
+      if (parsed.command === Command.BUY) {
+        if (user.role !== 'tenant') return reply('Only tenants can buy electricity. Type HELP to see your options.');
+        return this.buyEnergyFlow.begin(phone, parsed.args.amountNaira);
+      }
+
+      if (parsed.command === Command.WITHDRAW) {
+        if (user.role !== 'landlord') return reply('Only landlords can withdraw earnings. Type HELP to see your options.');
+        return this.withdrawFlow.begin(phone);
+      }
+
+      const standard = await this.standardHandlers.handle({ phone, parsed, user });
+      if (standard) return standard;
+
+      if (parsed.command === Command.HELP) {
+        return reply(user.role === 'landlord' ? renderScreen(ScreenId.HELP_LANDLORD) : renderScreen(ScreenId.HELP_TENANT));
+      }
+
+      return reply('I did not understand that. Type HELP to see your options.');
+    } catch (error) {
+      this.logger.error('Error handling inbound message', { error, message });
+      return reply(renderScreen(ScreenId.ERROR_GENERIC));
     }
-
-    if (parsed.command === Command.REGISTER) {
-      return reply(renderScreen(ScreenId.ERROR_ALREADY_REGISTERED));
-    }
-
-    if (parsed.command === Command.ADD_PROPERTY) {
-      if (user.role !== 'landlord') return reply('Only landlords can add properties. Type HELP to see your options.');
-      return this.addPropertyFlow.begin(phone);
-    }
-
-    if (parsed.command === Command.BUY) {
-      if (user.role !== 'tenant') return reply('Only tenants can buy electricity. Type HELP to see your options.');
-      return this.buyEnergyFlow.begin(phone, parsed.args.amountNaira);
-    }
-
-    if (parsed.command === Command.WITHDRAW) {
-      if (user.role !== 'landlord') return reply('Only landlords can withdraw earnings. Type HELP to see your options.');
-      return this.withdrawFlow.begin(phone);
-    }
-
-    const standard = await this.standardHandlers.handle({ phone, parsed, user });
-    if (standard) return standard;
-
-    if (parsed.command === Command.HELP) {
-      return reply(user.role === 'landlord' ? renderScreen(ScreenId.HELP_LANDLORD) : renderScreen(ScreenId.HELP_TENANT));
-    }
-
-    return reply('I did not understand that. Type HELP to see your options.');
   }
 
   async continueActiveFlow({ phone, text, parsed, session }) {

@@ -85,6 +85,10 @@ export class HttpBackendClient {
     return this.request(`/bot/landlords/${encodeURIComponent(normalisePhone(phone))}/earnings`);
   }
 
+  getLandlordPropertyEarnings({ phone, code }) {
+    return this.request(`/bot/landlords/${encodeURIComponent(normalisePhone(phone))}/properties/${encodeURIComponent(code)}/earnings`);
+  }
+
   listTenants({ landlordPhone, propertyCode }) {
     return this.request(`/bot/landlords/${encodeURIComponent(normalisePhone(landlordPhone))}/properties/${encodeURIComponent(propertyCode)}/tenants`);
   }
@@ -93,6 +97,17 @@ export class HttpBackendClient {
     return this.request(`/bot/landlords/${encodeURIComponent(normalisePhone(phone))}/withdrawals`, {
       method: 'POST',
       body: { amount },
+    });
+  }
+
+  getBankDetails({ phone }) {
+    return this.request(`/bot/landlords/${encodeURIComponent(normalisePhone(phone))}/bank-details`);
+  }
+
+  saveBankDetails({ phone, bankName, accountNumber }) {
+    return this.request(`/bot/landlords/${encodeURIComponent(normalisePhone(phone))}/bank-details`, {
+      method: 'POST',
+      body: { bankName, accountNumber },
     });
   }
 
