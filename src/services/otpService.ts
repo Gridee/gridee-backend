@@ -3,12 +3,16 @@ import { sendSMS } from './smsService';
 import crypto from 'crypto';
 
 export const otpService = {
-  async generateOTP(): Promise<string> {
+  async generateOTP(phone?: string): Promise<string> {
+    // If it's an internal test number, return 123456
+    if (phone && (phone.includes('8000000000') || phone.includes('8000000001'))) {
+      return '123456';
+    }
     return crypto.randomInt(100000, 999999).toString();
   },
 
   async sendOTP(phone: string): Promise<void> {
-    const code = await this.generateOTP();
+    const code = await this.generateOTP(phone);
     const key = `otp:${phone}`;
     const value = JSON.stringify({ code, attempts: 0 });
 

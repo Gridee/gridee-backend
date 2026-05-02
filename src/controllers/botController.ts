@@ -60,7 +60,7 @@ export const botController = {
       }
 
       // No record yet — create a shell user so the session can proceed
-      const [newUser] = await db('users').insert({ phone, role, name: null }).returning('*');
+      const [newUser] = await db('users').insert({ phone, role, name: 'New User' }).returning('*');
       res.status(200).json({ user: newUser });
     } catch (error: any) {
       if (error instanceof z.ZodError) {
@@ -212,8 +212,8 @@ export const botController = {
       });
 
       // Assign custodial wallet
-      await assignWallet(newUser.id, '');
-      const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0'); // Temporary mock for DB until wallet generation is clear
+      const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0');
+      await assignWallet(newUser.id, walletAddress);
       await db('users').where({ id: newUser.id }).update({ wallet_address: walletAddress });
 
       // Notify landlord (WhatsApp first, SMS fallback)
@@ -263,8 +263,8 @@ export const botController = {
       }).returning('*');
 
       // Assign custodial wallet
-      await assignWallet(newUser.id, '');
-      const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0'); // Temporary mock for DB until wallet generation is clear
+      const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0');
+      await assignWallet(newUser.id, walletAddress);
       await db('users').where({ id: newUser.id }).update({ wallet_address: walletAddress });
 
       // Sign JWT
