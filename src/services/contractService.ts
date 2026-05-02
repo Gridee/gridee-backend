@@ -184,3 +184,57 @@ export async function deductEnergy(tenant: string, amount: string): Promise<Tran
     if (!receipt) throw new Error("Deduct energy transaction failed");
     return receipt;
 }
+
+export const contractService = {
+    async assignWallet(userId: number, walletAddress: string): Promise<TransactionReceipt> {
+        return assignWallet(userId, walletAddress);
+    },
+
+    async mintTokens(walletAddress: string, grdAmount: number): Promise<{ txHash: string }> {
+        const receipt = await creditEnergy(walletAddress, grdAmount.toString());
+        return { txHash: receipt.hash };
+    },
+
+    async deductTokens(walletAddress: string, kwhUsed: number): Promise<void> {
+        await deductEnergy(walletAddress, kwhUsed.toString());
+    },
+
+    async getMeterBalance(walletAddress: string): Promise<number> {
+        const balance = await getEnergyBalance(walletAddress);
+        return Number(balance);
+    },
+
+    async registerProperty(
+        code: string,
+        flatCount: number,
+        location = "N/A",
+        landlordWallet = process.env.PLATFORM_WALLET_ADDRESS as string
+    ): Promise<TransactionReceipt> {
+        return registerProperty(code, landlordWallet, flatCount, location);
+    },
+
+    async getLandlordEarnings(
+        landlordWallet: string,
+        propertyCodes: string[]
+    ): Promise<{
+        totalNGN: number;
+        perProperty: Array<{ code: string; amountNGN: number }>;
+    }> {
+        // Placeholder until RevenueDistributor contract integration is available.
+        const perProperty = propertyCodes.map((code) => ({
+            code,
+            amountNGN: 0
+        }));
+        const totalNGN = Number(perProperty.reduce((sum, p) => sum + p.amountNGN, 0).toFixed(2));
+        console.log(`Computed earnings placeholder for landlord ${landlordWallet}`);
+        return { totalNGN, perProperty };
+    },
+
+    async getPropertyEarnings(
+        landlordWallet: string,
+        propertyCode: string
+    ): Promise<{ code: string; amountNGN: number }> {
+        console.log(`Computed property earnings placeholder for ${landlordWallet}/${propertyCode}`);
+        return { code: propertyCode, amountNGN: 0 };
+    }
+};

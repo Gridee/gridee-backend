@@ -2,9 +2,10 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { redis } from '../redis';
 import { db } from '../db';
+import { privyService } from '../services/privyService';
 import { otpService } from '../services/otpService';
-import { assignWallet } from '../services/contractService';
 import { notificationService } from '../services/notificationService';
+import { contractService } from '../services/contractService';
 import * as jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
@@ -99,6 +100,9 @@ export const authController = {
         role: pendingReg.role
       }).returning('*');
 
+      // Create an embedded wallet (Privy) off-chain, then map it on-chain.
+      const walletAddress = await privyService.createEmbeddedWallet(newUser.id);
+      await contractService.assignWallet(newUser.id, walletAddress);
       // If role is tenant, link them to their property
       if (pendingReg.role === 'tenant') {
         await db('tenants').insert({
@@ -112,8 +116,8 @@ export const authController = {
       }
 
       // Call contract service
-      await assignWallet(newUser.id, '');
-      const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0'); // Temporary mock for DB until wallet generation is clear
+    
+      
 
       // Update user with wallet address
       const [updatedUser] = await db('users')

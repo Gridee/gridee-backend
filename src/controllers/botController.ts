@@ -60,7 +60,7 @@ export const botController = {
       }
 
       // No record yet — create a shell user so the session can proceed
-      const [newUser] = await db('users').insert({ phone, role, name: 'New User' }).returning('*');
+      const [newUser] = await db('users').insert({ phone, role, name: null }).returning('*');
       res.status(200).json({ user: newUser });
     } catch (error: any) {
       if (error instanceof z.ZodError) {
