@@ -4,12 +4,7 @@ import { db } from '../db';
 import { contractService } from '../services/contractService';
 import { AuthRequest } from '../middleware/auth';
 
-const propertySchema = z.object({
-  address: z.string().min(5),
-  label: z.string().min(2),
-  flatCount: z.number().int().positive(),
-  state: z.string().min(2),
-});
+import { propertySchema } from '../schemas/propertySchemas';
 
 export const propertyController = {
   async registerProperty(req: AuthRequest, res: Response): Promise<void> {

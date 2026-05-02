@@ -619,6 +619,33 @@ export function myPropertyInfo(
 }
 
 /**
+ * Prompt for the first step of the ADD PROPERTY flow.
+ */
+export function addPropertyAddressPrompt(): string {
+  return "🏠 *Register New Property*\n\nPlease enter the full property address (street, area, and state):";
+}
+
+/**
+ * Prompt for the second step of the ADD PROPERTY flow.
+ */
+export function addPropertyFlatsPrompt(): string {
+  return "👥 *How many rentable flats/units are in this compound?*\n\nReply with a number (e.g. 4):";
+}
+
+/**
+ * Prompt for the final step of the ADD PROPERTY flow.
+ *
+ * @param address - The address entered in the first step.
+ */
+export function addPropertyLabelPrompt(address: string): string {
+  return [
+    `📍 *Address:* ${address}`,
+    ``,
+    `Great! Now give this property a short name (e.g. *Surulere Block A*) so you can easily identify it:`,
+  ].join("\n");
+}
+
+/**
  * Sent to the LANDLORD after a tenant is removed from one of their properties.
  * Confirms the specific property the tenant was removed from.
  * Distinct from removedTenant() which names the tenant — this one names the property.
@@ -633,6 +660,208 @@ export function tenantRemoved(propertyName: string): string {
     `The tenant's solar access has been stopped and they've been notified.`,
     ``,
     `_Type *TENANTS* to view who's still on this property._`,
+  ].join("\n");
+}
+
+/**
+ * Shown to a tenant when they send the BALANCE command.
+ * Displays current GRD balance, estimated hours remaining, and property name.
+ *
+ * @param balance       - Current on-chain GRD balance.
+ * @param hoursLeft     - Estimated hours of usage remaining.
+ * @param propertyLabel - Name of the property they are registered under.
+ * @param lastTopup     - Date of the last successful top-up.
+ */
+export function balanceView(
+  balance: number,
+  hoursLeft: number,
+  propertyLabel: string,
+  lastTopup: string
+): string {
+  return `Your Gridee balance: ${balance} GRD ≈ ${hoursLeft} hours of average usage. Property: ${propertyLabel}. Last topped up: ${lastTopup}.`;
+}
+
+/**
+ * Shown to a tenant when they send the HISTORY command.
+ * Lists the last 10 purchase transactions.
+ *
+ * @param transactions - List of recent transactions.
+ */
+export function historyView(
+  transactions: Array<{ date: string; amountNaira: number; grdAmount: number }>
+): string {
+  if (transactions.length === 0) {
+    return "📜 *Transaction History*\n\nYou haven't made any purchases yet.";
+  }
+
+  const lines = transactions.map(
+    (tx) => `• ${tx.date} — ₦${tx.amountNaira.toLocaleString("en-NG")} — +${tx.grdAmount} GRD`
+  );
+
+  return `Recent transactions:\n\n${lines.join("\n")}`;
+}
+
+/**
+ * USSD version of the balance screen.
+ * MUST stay under 182 characters and be very concise.
+ *
+ * @param balance       - Current GRD balance.
+ * @param kwh           - kWh equivalent.
+ * @param lastTopup     - Date of last top-up (DD/MM/YY).
+ * @param status        - Connection status.
+ */
+export function ussdBalance(
+  balance: number,
+  kwh: number,
+  lastTopup: string,
+  status: string
+): string {
+  return [
+    `Your Gridee balance:`,
+    `${balance} GRD (≈ ${kwh} kWh)`,
+    `Last topped up: ${lastTopup}`,
+    `Status: ${status} ${status === "Connected" ? "✅" : "⚠️"}`,
+  ].join("\n");
+}
+
+/**
+ * USSD version of the history screen.
+ * Shows last 5 transactions only. 182-character limit.
+ *
+ * @param transactions - List of recent transactions (max 5).
+ */
+export function ussdHistory(
+  transactions: Array<{ date: string; amountNaira: number; grdAmount: number }>
+): string {
+  if (transactions.length === 0) {
+    return "No transactions found. Type BUY to start.";
+  }
+
+  const lines = transactions.slice(0, 5).map(
+    (tx, i) => `${i + 1}. ₦${tx.amountNaira} → ${tx.grdAmount}GRD (${tx.date})`
+  );
+
+  return lines.join("\n");
+}
+
+/**
+ * Shown to a landlord when they send the MY PROPERTIES command.
+ * Lists all properties with their unique codes and flat/tenant counts.
+ *
+ * @param properties - List of property objects.
+ */
+export function landlordPropertiesList(
+  properties: Array<{ code: string; label: string; flat_count: number; activeTenantCount: number }>
+): string {
+  if (properties.length === 0) {
+    return [
+      `🏠 *Your Properties*`,
+      ``,
+      `You haven't registered any properties yet.`,
+      ``,
+      `_Type *ADD PROPERTY* to get started._`,
+    ].join("\n");
+  }
+
+  const lines = properties.map(
+    (p, i) => `${i + 1}. *${p.label}* (${p.code})\n   👥 ${p.activeTenantCount}/${p.flat_count} flats occupied`
+  );
+
+  return [
+    `🏠 *Your Properties*`,
+    ``,
+    ...lines,
+    ``,
+    `_Type *PROPERTY [CODE]* for more details on a specific compound._`,
+  ].join("\n");
+}
+
+/**
+ * Detailed view of a single property for the landlord.
+ *
+ * @param p - Property details object.
+ */
+export function landlordPropertyDetail(p: {
+  code: string;
+  label: string;
+  address: string;
+  flat_count: number;
+  activeTenantCount: number;
+  status: string;
+}): string {
+  return [
+    `🏢 *Property Details: ${p.code}*`,
+    ``,
+    `*Name:* ${p.label}`,
+    `📍 *Address:* ${p.address}`,
+    `👥 *Occupancy:* ${p.activeTenantCount} of ${p.flat_count} flats`,
+    `⚡ *Solar Status:* ${p.status}`,
+    ``,
+    `_Type *TENANTS ${p.code}* to see who is currently registered._`,
+  ].join("\n");
+}
+
+/**
+ * List of tenants for a specific property.
+ *
+ * @param code    - Property code.
+ * @param tenants - List of tenant names and status.
+ */
+export function landlordTenantList(
+  code: string,
+  tenants: Array<{ name: string; status: string }>
+): string {
+  if (tenants.length === 0) {
+    return `👥 *Tenants — ${code}*\n\nNo tenants registered yet.`;
+  }
+
+  const lines = tenants.map(
+    (t) => `• *${t.name}* — ${t.status === 'CONNECTED' ? '🟢 Active' : '🔴 Disconnected'}`
+  );
+
+  return [
+    `👥 *Tenants — ${code}*`,
+    ``,
+    ...lines,
+    ``,
+    `_Type *REMOVE TENANT [PHONE]* to disconnect a tenant._`,
+  ].join("\n");
+}
+
+/**
+ * Detailed earnings breakdown for a single property.
+ *
+ * @param code   - Property code.
+ * @param amount - Earnings in NGN.
+ */
+export function landlordEarningsDetail(code: string, amount: number): string {
+  return [
+    `💰 *Earnings: ${code}*`,
+    ``,
+    `Total accumulated revenue share: *₦${amount.toLocaleString("en-NG")}*`,
+    ``,
+    `_Type *WITHDRAW* to transfer these funds to your account._`,
+  ].join("\n");
+}
+
+/**
+ * Prompt shown to confirm withdrawal details.
+ *
+ * @param amount    - NGN amount.
+ * @param bank      - Bank name.
+ * @param last4     - Last 4 digits of account number.
+ */
+export function withdrawalConfirmPrompt(
+  amount: number,
+  bank: string,
+  last4: string
+): string {
+  return [
+    `❓ *Confirm Withdrawal*`,
+    ``,
+    `Withdraw *₦${amount.toLocaleString("en-NG")}* to your *${bank}* account ending in *${last4}*?`,
+    ``,
+    `Reply with *CONFIRM* to proceed or *CANCEL* to stop.`,
   ].join("\n");
 }
 

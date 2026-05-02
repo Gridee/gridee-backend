@@ -1,0 +1,37 @@
+import express from 'express';
+import * as dotenv from 'dotenv';
+import authRoutes from './routes/authRoutes';
+import propertyRoutes from './routes/propertyRoutes';
+import tenantRoutes from './routes/tenantRoutes';
+import botRoutes from './routes/botRoutes';
+import ussdRoutes from './routes/ussdRoutes';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/properties', propertyRoutes);
+app.use('/api/tenants', tenantRoutes);
+app.use('/api/ussd', ussdRoutes);
+app.use('/bot', botRoutes); // Bot-facing routes consumed by gridee-bot
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', message: 'Gridee API is running' });
+});
+
+// Start the server
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server is running on http://localhost:${PORT}`);
+  });
+}
+
+export default app;

@@ -1,13 +1,11 @@
 import { Router } from 'express';
-import { authMiddleware } from '../middleware/authMiddleware';
 import { tenantController } from '../controllers/tenantController';
+import { authenticate } from '../middleware/auth';
 
 const router = Router();
 
-router.use(authMiddleware);
-
-router.get('/balance', tenantController.getBalance);
-router.get('/history', tenantController.getHistory);
-router.get('/property', tenantController.getProperty);
+// Public tenant API (auth-gated)
+router.get('/balance', authenticate as any, tenantController.getBalance);
+router.get('/history', authenticate as any, tenantController.getHistory);
 
 export default router;

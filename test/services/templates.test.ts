@@ -45,6 +45,10 @@ import {
   youHaveBeenRemoved,
   myPropertyInfo,
   tenantRemoved,
+  balanceView,
+  historyView,
+  ussdBalance,
+  ussdHistory,
   safeMessage,
 } from "../../src/services/templateService";
 
@@ -796,6 +800,105 @@ describe("newTenantJoined", () => {
 
   it("stays within WhatsApp's 4,096-character limit", () => {
     expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- balanceView -------------------------------------------------------------
+
+describe("balanceView", () => {
+  const msg = balanceView(120.5, 241, "Surulere Block A", "12/04/2026");
+
+  it("matches the exact wording from SCREENS.md", () => {
+    expect(msg).toBe(
+      "Your Gridee balance: 120.5 GRD ≈ 241 hours of average usage. Property: Surulere Block A. Last topped up: 12/04/2026."
+    );
+  });
+
+  it("contains the GRD balance", () => {
+    expect(msg).toContain("120.5");
+  });
+
+  it("contains the hours remaining", () => {
+    expect(msg).toContain("241");
+  });
+
+  it("contains the property label", () => {
+    expect(msg).toContain("Surulere Block A");
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- historyView -------------------------------------------------------------
+
+describe("historyView", () => {
+  it("shows a placeholder when there are no transactions", () => {
+    const msg = historyView([]);
+    expect(msg).toContain("Transaction History");
+    expect(msg).toContain("haven't made any purchases yet");
+  });
+
+  it("lists the last 10 transactions with correct formatting", () => {
+    const txs = [
+      { date: "12/04", amountNaira: 2000, grdAmount: 4.5 },
+      { date: "10/04", amountNaira: 1000, grdAmount: 2.2 },
+    ];
+    const msg = historyView(txs);
+    expect(msg).toContain("Recent transactions:");
+    expect(msg).toContain("12/04 — ₦2,000 — +4.5 GRD");
+    expect(msg).toContain("10/04 — ₦1,000 — +2.2 GRD");
+  });
+
+  it("stays within WhatsApp's 4,096-character limit", () => {
+    const txs = Array(10).fill({ date: "12/04", amountNaira: 2000, grdAmount: 4.5 });
+    const msg = historyView(txs);
+    expect(msg.length).toBeLessThanOrEqual(WHATSAPP_MAX_LENGTH);
+  });
+});
+
+// --- ussdBalance -------------------------------------------------------------
+
+describe("ussdBalance", () => {
+  const msg = ussdBalance(120.5, 120.5, "12/04/26", "Connected");
+
+  it("contains critical info: balance, kWh, status", () => {
+    expect(msg).toContain("120.5 GRD");
+    expect(msg).toContain("120.5 kWh");
+    expect(msg).toContain("Connected");
+  });
+
+  it("includes a checkmark for connected status", () => {
+    expect(msg).toContain("✅");
+  });
+
+  it("stays well within the 182-character USSD limit", () => {
+    expect(msg.length).toBeLessThanOrEqual(182);
+  });
+});
+
+// --- ussdHistory -------------------------------------------------------------
+
+describe("ussdHistory", () => {
+  it("shows a placeholder when empty", () => {
+    expect(ussdHistory([])).toContain("No transactions found");
+  });
+
+  it("lists up to 5 transactions in a compact format", () => {
+    const txs = [
+      { date: "12/04", amountNaira: 2000, grdAmount: 4.5 },
+      { date: "10/04", amountNaira: 1000, grdAmount: 2.2 },
+    ];
+    const msg = ussdHistory(txs);
+    expect(msg).toContain("1. ₦2000 → 4.5GRD (12/04)");
+    expect(msg).toContain("2. ₦1000 → 2.2GRD (10/04)");
+  });
+
+  it("stays well within the 182-character USSD limit", () => {
+    const txs = Array(5).fill({ date: "12/04", amountNaira: 2000, grdAmount: 4.5 });
+    const msg = ussdHistory(txs);
+    expect(msg.length).toBeLessThanOrEqual(182);
   });
 });
 
