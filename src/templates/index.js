@@ -77,6 +77,7 @@ export const templates = Object.freeze({
   },
   [ScreenId.EARNINGS_PROPERTY]: ({ code, amount, purchases }) => `Earnings for ${code}:\n\nTotal: ${money(amount)}\nPurchases: ${purchases}`,
   [ScreenId.WITHDRAW_BANK_INPUT]: () => 'Where should we send your funds?\n\n1. Bank Account\n2. OPay\n3. PalmPay',
+  [ScreenId.WITHDRAW_ACCOUNT_INPUT]: () => 'Enter your 10-digit account number:',
   [ScreenId.WITHDRAW_CONFIRM]: ({ amount, bankName, last4 }) => `Withdraw ${money(amount)} to ${bankName} ****${last4}?\n\nReply CONFIRM to proceed.`,
   [ScreenId.WITHDRAWAL_INITIATED]: ({ amount, bankName, last4 }) => `${money(amount)} is being transferred to ${bankName} ****${last4}. Should arrive within 2 hours.`,
 
