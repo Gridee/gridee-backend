@@ -3,9 +3,11 @@ import { z } from 'zod';
 import { ethers } from 'ethers';
 import { redis } from '../redis';
 import { db } from '../db';
+import { privyService } from '../services/privyService';
 import { otpService } from '../services/otpService';
 import { registerLandlordWallet, registerTenantWallet } from '../services/contractService';
 import { notificationService } from '../services/notificationService';
+import { contractService } from '../services/contractService';
 import * as jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET as string;

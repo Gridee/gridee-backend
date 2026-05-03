@@ -1,43 +1,57 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { db } from '../db';
+import { contractService } from '../services/contractService';
+import { AuthRequest } from '../middleware/auth';
 
-const propertySchema = z.object({
-  code: z.string().min(3),
-  label: z.string().min(2),
-  address: z.string().min(5),
-  state: z.string().min(2),
-  flat_count: z.number().int().positive(),
-});
+import { propertySchema } from '../schemas/propertySchemas';
 
 export const propertyController = {
-  async registerProperty(req: Request, res: Response) {
+  async registerProperty(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const validated = propertySchema.parse(req.body);
-      const landlord_id = (req as any).user?.id;
-
-      if (!landlord_id) {
-        res.status(401).json({ error: 'Unauthorized' });
+      if (!req.user || req.user.role !== 'landlord') {
+        res.status(403).json({ error: 'Forbidden: Only landlords can register properties' });
         return;
       }
 
-      const [property] = await db('properties').insert({
-        landlord_id,
-        code: validated.code,
-        label: validated.label,
-        address: validated.address,
-        state: validated.state,
-        flat_count: validated.flat_count,
+      const { address, label, flatCount, state } = propertySchema.parse(req.body);
+
+      const statePrefix = state.substring(0, 3).toUpperCase();
+      
+      const countRes = await db('properties')
+        .where('state', 'ilike', state)
+        .count('* as count')
+        .first();
+        
+      const count = parseInt(String(countRes?.count || '0'), 10);
+      const sequence = count + 1;
+      
+      const code = `GRD-${statePrefix}-${sequence.toString().padStart(4, '0')}`;
+
+      const [newProperty] = await db('properties').insert({
+        landlord_id: req.user.id,
+        code,
+        label,
+        address,
+        state,
+        flat_count: flatCount,
         status: 'ACTIVE'
       }).returning('*');
 
-      res.status(201).json(property);
+      await contractService.registerProperty(code, flatCount, address);
+
+      res.status(201).json({
+        code: newProperty.code,
+        label: newProperty.label,
+        address: newProperty.address
+      });
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         res.status(400).json({ errors: error.issues });
         return;
       }
-      res.status(500).json({ error: 'Failed to register property' });
+      console.error('Property registration error:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 };

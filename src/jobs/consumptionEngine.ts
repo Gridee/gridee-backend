@@ -7,6 +7,16 @@ import { sendSMS } from '../services/smsService';
 const CONSUMPTION_KWH_PER_HOUR = parseFloat(process.env.CONSUMPTION_KWH_PER_HOUR || '0.5');
 const LOW_BALANCE_THRESHOLD = 1;
 
+export interface ConsumptionEngineOptions {
+  schedule?: string;
+  runOnStart?: boolean;
+}
+
+export interface ConsumptionEngineHandle {
+  stop(): void;
+  triggerNow(): Promise<void>;
+}
+
 async function notifyTenant(phone: string, message: string): Promise<void> {
   try {
     await sendSMS(phone, message);
@@ -69,9 +79,26 @@ async function runConsumptionCycle(): Promise<void> {
 
 let scheduledTask: cron.ScheduledTask | null = null;
 
-export function startConsumptionEngine(): void {
+export function startConsumptionEngine(opts?: ConsumptionEngineOptions): ConsumptionEngineHandle {
   scheduledTask = cron.schedule('0 * * * *', runConsumptionCycle);
   console.log('[consumption] Engine started — runs every hour');
+
+  if (opts?.runOnStart) {
+    runConsumptionCycle().catch(() => undefined);
+  }
+
+  return {
+    stop(): void {
+      if (scheduledTask) {
+        scheduledTask.stop();
+        scheduledTask = null;
+        console.log('[consumption] Engine stopped');
+      }
+    },
+    triggerNow(): Promise<void> {
+      return runConsumptionCycle();
+    }
+  };
 }
 
 export function stopConsumptionEngine(): void {
