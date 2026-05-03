@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { ethers, Contract, TransactionReceipt } from "ethers";
 
 interface GrideeTokenContract {
@@ -21,6 +20,7 @@ interface PropertyRegistryContract {
         createdAt: number;
     }>;
     deactivateProperty(code: string): Promise<ethers.TransactionResponse>;
+    updateProperty(code: string, newFlatCount: number, newLocation: string): Promise<ethers.TransactionResponse>;
     getPropertiesByLandlord(landlordWallet: string): Promise<
         {
             flatCount: number;
@@ -33,19 +33,38 @@ interface PropertyRegistryContract {
 }
 
 interface WalletFactoryContract {
-    assignWallet(userId: number, wallet: string): Promise<ethers.TransactionResponse>;
-    getWallet(userId: number): Promise<string>;
-    walletExists(userId: number): Promise<boolean>;
+    registerLandlord(phoneHash: string, wallet: string): Promise<ethers.TransactionResponse>;
+    registerTenant(phoneHash: string, wallet: string, propertyCode: string): Promise<ethers.TransactionResponse>;
+    getLandlordWallet(phoneHash: string): Promise<string>;
+    getTenantWallet(phoneHash: string): Promise<string>;
+    getTenantProperty(phoneHash: string): Promise<string>;
+    isWalletRegistered(wallet: string): Promise<boolean>;
 }
 
 interface EnergyLedgerContract {
-    credit(tenant: string, amount: bigint): Promise<ethers.TransactionResponse>;
-    deduct(tenant: string, amount: bigint): Promise<ethers.TransactionResponse>;
-    getBalance(tenant: string): Promise<bigint>;
+    mintTokens(tenantWallet: string, amount: bigint): Promise<ethers.TransactionResponse>;
+    deductTokens(tenantWallet: string, amount: bigint): Promise<ethers.TransactionResponse>;
+    getBalance(tenantWallet: string): Promise<bigint>;
+    setCutOff(tenantWallet: string, status: boolean): Promise<ethers.TransactionResponse>;
+    isCutOff(tenantWallet: string): Promise<boolean>;
 }
 
-const provider = new ethers.JsonRpcProvider(process.env.CONTRACT_RPC_URL as string);
-const signer = new ethers.Wallet(process.env.OPERATOR_PRIVATE_KEY as string, provider);
+interface RevenueDistributorContract {
+    distributeRevenue(propertyCode: string, landlordWallet: string, totalAmount: bigint): Promise<ethers.TransactionResponse>;
+    withdraw(): Promise<ethers.TransactionResponse>;
+    updateShares(newLandlordBPS: number, newPlatformBPS: number): Promise<ethers.TransactionResponse>;
+    updateWallets(newPlatformWallet: string, newOpsWallet: string): Promise<ethers.TransactionResponse>;
+    pendingWithdrawals(landlord: string): Promise<bigint>;
+}
+
+function getEnv(key: string): string {
+    const value = process.env[key];
+    if (!value) throw new Error(`Missing required env var: ${key}`);
+    return value;
+}
+
+const provider = new ethers.JsonRpcProvider(getEnv("CONTRACT_RPC_URL"));
+const signer = new ethers.Wallet(getEnv("OPERATOR_PRIVATE_KEY"), provider);
 
 const GRIDEE_TOKEN_ABI = [
     "function mint(address to, uint256 amount) external",
@@ -57,45 +76,65 @@ const PROPERTY_REGISTRY_ABI = [
     "function registerProperty(bytes32 code, address landlordWallet, uint8 flatCount, string calldata location) external",
     "function getProperty(bytes32 code) view returns (tuple(uint8 flatCount, string location, bool isActive, uint40 createdAt))",
     "function deactivateProperty(bytes32 code) external",
+    "function updateProperty(bytes32 code, uint8 newFlatCount, string calldata newLocation) external",
     "function getPropertiesByLandlord(address landlordWallet) view returns (tuple(uint8 flatCount, string location, bool isActive, uint40 createdAt)[])",
     "function getPropertyCodesByLandlord(address landlordWallet) view returns (bytes32[])",
 ];
 
 const WALLET_FACTORY_ABI = [
-    "function assignWallet(uint256 userId, address wallet) external",
-    "function getWallet(uint256 userId) view returns (address)",
-    "function walletExists(uint256 userId) view returns (bool)",
+    "function registerLandlord(bytes32 phoneHash, address wallet) external",
+    "function registerTenant(bytes32 phoneHash, address wallet, bytes32 propertyCode) external",
+    "function getLandlordWallet(bytes32 phoneHash) view returns (address)",
+    "function getTenantWallet(bytes32 phoneHash) view returns (address)",
+    "function getTenantProperty(bytes32 phoneHash) view returns (bytes32)",
+    "function isWalletRegistered(address wallet) view returns (bool)",
 ];
 
 const ENERGY_LEDGER_ABI = [
-    "function credit(address tenant, uint256 amount) external",
-    "function deduct(address tenant, uint256 amount) external",
-    "function getBalance(address tenant) view returns (uint256)",
+    "function mintTokens(address tenantWallet, uint256 amount) external",
+    "function deductTokens(address tenantWallet, uint256 amount) external",
+    "function getBalance(address tenantWallet) view returns (uint256)",
+    "function setCutOff(address tenantWallet, bool status) external",
+    "function isCutOff(address tenantWallet) view returns (bool)",
+];
+
+const REVENUE_DISTRIBUTOR_ABI = [
+    "function distributeRevenue(bytes32 propertyCode, address landlordWallet, uint256 totalAmount) external",
+    "function withdraw() external",
+    "function updateShares(uint256 newLandlordBPS, uint256 newPlatformBPS) external",
+    "function updateWallets(address newPlatformWallet, address newOpsWallet) external",
+    "function pendingWithdrawals(address landlord) view returns (uint256)",
 ];
 
 const grideeToken = new Contract(
-    process.env.GRIDEE_TOKEN_ADDRESS as string,
+    getEnv("GRIDEE_TOKEN_ADDRESS"),
     GRIDEE_TOKEN_ABI,
     signer
-) as object as GrideeTokenContract;
+) as unknown as GrideeTokenContract;
 
 const propertyRegistry = new Contract(
-    process.env.PROPERTY_REGISTRY_ADDRESS as string,
+    getEnv("PROPERTY_REGISTRY_ADDRESS"),
     PROPERTY_REGISTRY_ABI,
     signer
-) as object as PropertyRegistryContract;
+) as unknown as PropertyRegistryContract;
 
 const walletFactory = new Contract(
-    process.env.WALLET_FACTORY_ADDRESS as string,
+    getEnv("WALLET_FACTORY_ADDRESS"),
     WALLET_FACTORY_ABI,
     signer
-) as object as WalletFactoryContract;
+) as unknown as WalletFactoryContract;
 
 const energyLedger = new Contract(
-    process.env.ENERGY_LEDGER_ADDRESS as string,
+    getEnv("ENERGY_LEDGER_ADDRESS"),
     ENERGY_LEDGER_ABI,
     signer
-) as object as EnergyLedgerContract;
+) as unknown as EnergyLedgerContract;
+
+const revenueDistributor = new Contract(
+    getEnv("REVENUE_DISTRIBUTOR_ADDRESS"),
+    REVENUE_DISTRIBUTOR_ABI,
+    signer
+) as unknown as RevenueDistributorContract;
 
 export async function mintTokens(to: string, amount: string): Promise<TransactionReceipt> {
     const tx = await grideeToken.mint(to, ethers.parseUnits(amount, 18));
@@ -122,22 +161,47 @@ export async function registerProperty(
     return receipt;
 }
 
-export async function assignWallet(
-    userId: number,
+export async function registerLandlordWallet(
+    phone: string,
     walletAddress: string
 ): Promise<TransactionReceipt> {
-    const tx = await walletFactory.assignWallet(userId, walletAddress);
+    const phoneHash = ethers.keccak256(ethers.toUtf8Bytes(phone));
+    const tx = await walletFactory.registerLandlord(phoneHash, walletAddress);
     const receipt = await tx.wait();
-    if (!receipt) throw new Error("Assign wallet transaction failed");
+    if (!receipt) throw new Error("Register landlord wallet transaction failed");
     return receipt;
 }
 
-export async function getWallet(userId: number): Promise<string> {
-    return await walletFactory.getWallet(userId);
+export async function registerTenantWallet(
+    phone: string,
+    walletAddress: string,
+    propertyCode: string
+): Promise<TransactionReceipt> {
+    const phoneHash = ethers.keccak256(ethers.toUtf8Bytes(phone));
+    const propertyCodeHash = ethers.id(propertyCode);
+    const tx = await walletFactory.registerTenant(phoneHash, walletAddress, propertyCodeHash);
+    const receipt = await tx.wait();
+    if (!receipt) throw new Error("Register tenant wallet transaction failed");
+    return receipt;
 }
 
-export async function checkWalletExists(userId: number): Promise<boolean> {
-    return await walletFactory.walletExists(userId);
+export async function getLandlordWallet(phone: string): Promise<string> {
+    const phoneHash = ethers.keccak256(ethers.toUtf8Bytes(phone));
+    return await walletFactory.getLandlordWallet(phoneHash);
+}
+
+export async function getTenantWallet(phone: string): Promise<string> {
+    const phoneHash = ethers.keccak256(ethers.toUtf8Bytes(phone));
+    return await walletFactory.getTenantWallet(phoneHash);
+}
+
+export async function getTenantProperty(phone: string): Promise<string> {
+    const phoneHash = ethers.keccak256(ethers.toUtf8Bytes(phone));
+    return await walletFactory.getTenantProperty(phoneHash);
+}
+
+export async function checkWalletExists(walletAddress: string): Promise<boolean> {
+    return await walletFactory.isWalletRegistered(walletAddress);
 }
 
 export async function getProperty(code: string) {
@@ -161,6 +225,18 @@ export async function deactivateProperty(code: string): Promise<TransactionRecei
     return receipt;
 }
 
+export async function updateProperty(
+    code: string,
+    newFlatCount: number,
+    newLocation: string
+): Promise<TransactionReceipt> {
+    const codeHash = ethers.id(code);
+    const tx = await propertyRegistry.updateProperty(codeHash, newFlatCount, newLocation);
+    const receipt = await tx.wait();
+    if (!receipt) throw new Error("Update property transaction failed");
+    return receipt;
+}
+
 export async function getTokenBalance(address: string): Promise<string> {
     const balance = await grideeToken.balanceOf(address);
     return ethers.formatUnits(balance, 18);
@@ -171,16 +247,55 @@ export async function getEnergyBalance(address: string): Promise<string> {
     return ethers.formatUnits(balance, 18);
 }
 
-export async function creditEnergy(tenant: string, amount: string): Promise<TransactionReceipt> {
-    const tx = await energyLedger.credit(tenant, ethers.parseUnits(amount, 18));
+export async function mintEnergyTokens(tenant: string, amount: string): Promise<TransactionReceipt> {
+    const tx = await energyLedger.mintTokens(tenant, ethers.parseUnits(amount, 18));
     const receipt = await tx.wait();
-    if (!receipt) throw new Error("Credit energy transaction failed");
+    if (!receipt) throw new Error("Mint energy tokens transaction failed");
     return receipt;
 }
 
-export async function deductEnergy(tenant: string, amount: string): Promise<TransactionReceipt> {
-    const tx = await energyLedger.deduct(tenant, ethers.parseUnits(amount, 18));
+export async function deductEnergyTokens(tenant: string, amount: string): Promise<TransactionReceipt> {
+    const tx = await energyLedger.deductTokens(tenant, ethers.parseUnits(amount, 18));
     const receipt = await tx.wait();
-    if (!receipt) throw new Error("Deduct energy transaction failed");
+    if (!receipt) throw new Error("Deduct energy tokens transaction failed");
     return receipt;
+}
+
+export async function setCutOff(tenant: string, status: boolean): Promise<TransactionReceipt> {
+    const tx = await energyLedger.setCutOff(tenant, status);
+    const receipt = await tx.wait();
+    if (!receipt) throw new Error("Set cut-off transaction failed");
+    return receipt;
+}
+
+export async function isCutOff(tenant: string): Promise<boolean> {
+    return await energyLedger.isCutOff(tenant);
+}
+
+export async function distributeRevenue(
+    propertyCode: string,
+    landlordWallet: string,
+    totalAmount: string
+): Promise<TransactionReceipt> {
+    const propertyCodeHash = ethers.id(propertyCode);
+    const tx = await revenueDistributor.distributeRevenue(
+        propertyCodeHash,
+        landlordWallet,
+        ethers.parseUnits(totalAmount, 18)
+    );
+    const receipt = await tx.wait();
+    if (!receipt) throw new Error("Distribute revenue transaction failed");
+    return receipt;
+}
+
+export async function withdrawRevenue(): Promise<TransactionReceipt> {
+    const tx = await revenueDistributor.withdraw();
+    const receipt = await tx.wait();
+    if (!receipt) throw new Error("Withdraw revenue transaction failed");
+    return receipt;
+}
+
+export async function getPendingWithdrawals(landlord: string): Promise<string> {
+    const balance = await revenueDistributor.pendingWithdrawals(landlord);
+    return ethers.formatUnits(balance, 18);
 }

@@ -1,28 +1,18 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { ethers } from 'ethers';
 import { redis } from '../redis';
 import { db } from '../db';
 import { otpService } from '../services/otpService';
-import { assignWallet, getTokenBalance } from '../services/contractService';
+import { getTokenBalance, registerLandlordWallet, registerTenantWallet } from '../services/contractService';
 import { notificationService } from '../services/notificationService';
 import * as jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
+const LANDLORD_SHARE_BPS = parseInt(process.env.LANDLORD_SHARE_BPS || '1800', 10);
 
-/**
- * Bot-facing controller.
- * These endpoints are consumed exclusively by the gridee-bot WhatsApp client.
- * Endpoint shapes must match src/backend/http-backend-client.js in gridee-bot.
- */
 export const botController = {
 
-  /**
-   * POST /bot/users/resolve
-   * Body: { phone }
-   * Looks up an existing user by phone number.
-   * Returns { user } or { user: null } if not found.
-   * Called by the bot-router on every inbound message to determine session context.
-   */
   async resolveUser(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.body);
@@ -38,13 +28,6 @@ export const botController = {
     }
   },
 
-  /**
-   * PATCH /bot/users/role
-   * Body: { phone, role }
-   * Pre-assigns a role ('landlord' | 'tenant') before registration begins.
-   * Creates a placeholder user record if one doesn't yet exist.
-   * Returns { user }
-   */
   async setUserRole(req: Request, res: Response): Promise<void> {
     try {
       const { phone, role } = z.object({
@@ -59,7 +42,6 @@ export const botController = {
         return;
       }
 
-      // No record yet — create a shell user so the session can proceed
       const [newUser] = await db('users').insert({ phone, role, name: 'New User' }).returning('*');
       res.status(200).json({ user: newUser });
     } catch (error: any) {
@@ -72,11 +54,6 @@ export const botController = {
     }
   },
 
-  /**
-   * POST /bot/otp/send
-   * Body: { phone, purpose }
-   * Sends an OTP to the given phone number.
-   */
   async sendOtp(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.body);
@@ -92,11 +69,6 @@ export const botController = {
     }
   },
 
-  /**
-   * POST /bot/otp/verify
-   * Body: { phone, code, purpose }
-   * Returns { valid: true/false }
-   */
   async verifyOtp(req: Request, res: Response): Promise<void> {
     try {
       const { phone, code } = z.object({
@@ -116,11 +88,6 @@ export const botController = {
     }
   },
 
-  /**
-   * GET /bot/properties/:code/validate
-   * Validates that a property code exists and is active.
-   * Returns { valid: true/false }
-   */
   async validatePropertyCode(req: Request, res: Response): Promise<void> {
     try {
       const code = String(req.params.code || '').toUpperCase();
@@ -131,7 +98,7 @@ export const botController = {
 
       const property = await db('properties')
         .where({ code })
-        .whereIn('status', ['ACTIVE', 'active'])
+        .where({ status: 'ACTIVE' })
         .first();
 
       res.status(200).json({ valid: !!property });
@@ -141,10 +108,6 @@ export const botController = {
     }
   },
 
-  /**
-   * GET /bot/users/:phone/help
-   * Returns the user's role to determine which HELP template to show.
-   */
   async getHelp(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
@@ -162,12 +125,6 @@ export const botController = {
     }
   },
 
-  /**
-   * POST /bot/tenants/register
-   * Body: { phone, name, verificationPhone, propertyCode }
-   * Creates user + tenant record, assigns wallet, notifies landlord.
-   * Returns { tenant: { name, phone, ... } }
-   */
   async registerTenant(req: Request, res: Response): Promise<void> {
     try {
       const { phone, name, verificationPhone, propertyCode } = z.object({
@@ -177,7 +134,6 @@ export const botController = {
         propertyCode: z.string().min(3),
       }).parse(req.body);
 
-      // Find the property
       const property = await db('properties')
         .where({ code: propertyCode.toUpperCase() })
         .first();
@@ -190,36 +146,31 @@ export const botController = {
         return;
       }
 
-      // Check if user already exists
       const existingUser = await db('users').where({ phone: verificationPhone }).first();
       if (existingUser) {
         res.status(409).json({ success: false, error: 'User already registered' });
         return;
       }
 
-      // Create user
       const [newUser] = await db('users').insert({
         name,
         phone: verificationPhone,
         role: 'tenant',
       }).returning('*');
 
-      // Link tenant to property
       await db('tenants').insert({
         user_id: newUser.id,
         property_id: property.id,
         status: 'CONNECTED',
       });
 
-      // Assign custodial wallet
-      const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0');
-      await assignWallet(newUser.id, walletAddress);
+      const wallet = ethers.Wallet.createRandom();
+      const walletAddress = wallet.address;
+      await registerTenantWallet(verificationPhone, walletAddress, property.code);
       await db('users').where({ id: newUser.id }).update({ wallet_address: walletAddress });
 
-      // Notify landlord (WhatsApp first, SMS fallback)
       await notificationService.notifyLandlord(property.id, name);
 
-      // Sign JWT
       const token = jwt.sign({ id: newUser.id, role: 'tenant' }, JWT_SECRET, { expiresIn: '7d' });
 
       res.status(201).json({
@@ -236,10 +187,6 @@ export const botController = {
     }
   },
 
-  /**
-   * POST /bot/landlords/register
-   * Body: { phone, name, verificationPhone }
-   */
   async registerLandlord(req: Request, res: Response): Promise<void> {
     try {
       const { phone, name, verificationPhone } = z.object({
@@ -248,26 +195,23 @@ export const botController = {
         verificationPhone: z.string().min(7),
       }).parse(req.body);
 
-      // Check if user already exists
       const existingUser = await db('users').where({ phone: verificationPhone }).first();
       if (existingUser) {
         res.status(409).json({ success: false, error: 'User already registered' });
         return;
       }
 
-      // Create user
       const [newUser] = await db('users').insert({
         name,
         phone: verificationPhone,
         role: 'landlord',
       }).returning('*');
 
-      // Assign custodial wallet
-      const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0');
-      await assignWallet(newUser.id, walletAddress);
+      const wallet = ethers.Wallet.createRandom();
+      const walletAddress = wallet.address;
+      await registerLandlordWallet(verificationPhone, walletAddress);
       await db('users').where({ id: newUser.id }).update({ wallet_address: walletAddress });
 
-      // Sign JWT
       const token = jwt.sign({ id: newUser.id, role: 'landlord' }, JWT_SECRET, { expiresIn: '7d' });
 
       res.status(201).json({
@@ -285,10 +229,6 @@ export const botController = {
     }
   },
 
-  /**
-   * GET /bot/tenants/:phone/balance
-   * Returns current GRD balance, hours remaining, and property info.
-   */
   async getTenantBalance(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
@@ -310,20 +250,16 @@ export const botController = {
         return;
       }
 
-      // Fetch on-chain balance
       const balanceGrd = await getTokenBalance(user.wallet_address || '');
       
-      // Calculate hours remaining (MVP: use fixed rate from .env)
       const consumptionRate = parseFloat(process.env.CONSUMPTION_KWH_PER_HOUR || '0.5');
       const hoursLeft = Math.floor(parseFloat(balanceGrd) / consumptionRate);
 
-      // Get last successful topup date
       const lastTx = await db('transactions')
         .where({ tenant_id: tenant.id, status: 'SUCCESSFUL' })
         .orderBy('created_at', 'desc')
         .first();
 
-      // Calculate NGN equivalent
       const grdPrice = parseFloat(process.env.GRD_PRICE_PER_NGN || '1');
       const balanceNGN = parseFloat(balanceGrd) / grdPrice;
 
@@ -345,10 +281,6 @@ export const botController = {
     }
   },
 
-  /**
-   * GET /bot/tenants/:phone/history
-   * Returns last 10 transactions for the tenant.
-   */
   async getTenantHistory(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
@@ -387,10 +319,6 @@ export const botController = {
     }
   },
 
-  /**
-   * GET /bot/tenants/:phone/property
-   * Returns details of the property the tenant is registered under.
-   */
   async getTenantProperty(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
@@ -422,7 +350,7 @@ export const botController = {
         label: tenantRecord.label,
         address: tenantRecord.address,
         landlordName: tenantRecord.landlordName,
-        status: tenantRecord.status === 'CONNECTED' ? 'Connected ✅' : 'Disconnected ⚠️'
+        status: tenantRecord.status === 'CONNECTED' ? 'Connected' : 'Disconnected'
       });
     } catch (error: any) {
       console.error('[bot/tenants/property] error:', error);
@@ -430,9 +358,6 @@ export const botController = {
     }
   },
 
-  /**
-   * GET /bot/landlord/:phone/properties
-   */
   async getLandlordProperties(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
@@ -447,15 +372,19 @@ export const botController = {
         .select('properties.*')
         .orderBy('created_at', 'desc');
 
-      const enhancedProperties = await Promise.all(
-        properties.map(async (p) => {
-          const tenantCount = await db('tenants').where({ property_id: p.id }).count('id as count').first();
-          return {
-            ...p,
-            activeTenantCount: Number(tenantCount?.count || 0)
-          };
-        })
-      );
+      const tenantCounts = await db('tenants')
+        .whereIn('property_id', properties.map(p => p.id))
+        .groupBy('property_id')
+        .select('property_id')
+        .count('id as count');
+
+      const countMap = new Map<number, number>();
+      tenantCounts.forEach((row: any) => countMap.set(row.property_id, Number(row.count)));
+
+      const enhancedProperties = properties.map(p => ({
+        ...p,
+        activeTenantCount: countMap.get(p.id) || 0
+      }));
 
       res.status(200).json({ properties: enhancedProperties });
     } catch (error: any) {
@@ -464,9 +393,6 @@ export const botController = {
     }
   },
 
-  /**
-   * GET /bot/landlord/:phone/properties/:code
-   */
   async getLandlordPropertyDetails(req: Request, res: Response): Promise<void> {
     try {
       const { phone, code } = z.object({
@@ -498,9 +424,6 @@ export const botController = {
     }
   },
 
-  /**
-   * GET /bot/landlord/:phone/properties/:code/tenants
-   */
   async getLandlordPropertyTenants(req: Request, res: Response): Promise<void> {
     try {
       const { phone, code } = z.object({
@@ -525,16 +448,13 @@ export const botController = {
         .where({ 'tenants.property_id': property.id })
         .select('users.name', 'users.phone', 'tenants.status');
 
-      res.status(200).json({ tenants });
+      res.status(200).json({ property: { code: property.code, label: property.label, flatCount: property.flat_count, occupiedCount: tenants.length }, tenants });
     } catch (error: any) {
       console.error('[bot/landlord/property/tenants] error:', error);
       res.status(500).json({ error: 'Failed to fetch tenants' });
     }
   },
 
-  /**
-   * GET /bot/landlord/:phone/earnings
-   */
   async getLandlordEarnings(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
@@ -554,12 +474,14 @@ export const botController = {
         .sum('amount_ngn as total')
         .groupBy('property_id');
 
+      const shareMultiplier = LANDLORD_SHARE_BPS / 10000;
+
       const breakdown = properties.map(p => {
         const pEarnings = earnings.find(e => e.property_id === p.id);
         return {
           code: p.code,
           label: p.label,
-          amount: Math.round((Number(pEarnings?.total || 0) * 0.1) * 100) / 100 // 10% share
+          amount: Math.round((Number(pEarnings?.total || 0) * shareMultiplier) * 100) / 100
         };
       });
 
@@ -572,9 +494,6 @@ export const botController = {
     }
   },
 
-  /**
-   * GET /bot/landlords/:phone/properties/:code/earnings
-   */
   async getLandlordPropertyEarnings(req: Request, res: Response): Promise<void> {
     try {
       const { phone, code } = z.object({
@@ -599,7 +518,8 @@ export const botController = {
         .sum('amount_ngn as total')
         .first();
 
-      const amount = Math.round((Number(earnings?.total || 0) * 0.1) * 100) / 100;
+      const shareMultiplier = LANDLORD_SHARE_BPS / 10000;
+      const amount = Math.round((Number(earnings?.total || 0) * shareMultiplier) * 100) / 100;
 
       res.status(200).json({ code, amount });
     } catch (error: any) {
@@ -609,9 +529,6 @@ export const botController = {
   },
 
 
-  /**
-   * GET /bot/landlord/:phone/bank-details
-   */
   async getBankDetails(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
@@ -621,8 +538,6 @@ export const botController = {
         return;
       }
 
-      // Check if user has bank details (we might need to add these columns to users table or a separate table)
-      // For now, let's assume they are in the users table or we return null
       res.status(200).json({ 
         bankName: user.bank_name || null,
         accountNumber: user.account_number || null
@@ -633,9 +548,6 @@ export const botController = {
     }
   },
 
-  /**
-   * POST /bot/landlord/:phone/bank-details
-   */
   async saveBankDetails(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
@@ -662,9 +574,6 @@ export const botController = {
     }
   },
 
-  /**
-   * POST /bot/landlord/:phone/withdraw
-   */
   async initiateWithdrawal(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
@@ -677,11 +586,10 @@ export const botController = {
       }
 
       if (!landlord.account_number) {
-        res.status(400).json({ error: 'Bank details missing' });
+        res.status(400).json({ error: 'Bank details missing. Save bank details first.' });
         return;
       }
 
-      // Record withdrawal
       const [withdrawal] = await db('withdrawals').insert({
         landlord_id: landlord.id,
         amount,
@@ -702,10 +610,6 @@ export const botController = {
     }
   },
 
-  /**
-   * POST /bot/landlords/:phone/remove-tenant
-   * Body: { tenantPhone }
-   */
   async removeTenant(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
@@ -750,9 +654,6 @@ export const botController = {
     }
   },
 
-  /**
-   * GET /bot/sessions/:phone
-   */
   async getSession(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
@@ -764,10 +665,6 @@ export const botController = {
     }
   },
 
-  /**
-   * POST /bot/sessions/:phone
-   * Body: { step, data }
-   */
   async updateSession(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
@@ -784,7 +681,7 @@ export const botController = {
         data: { ...existing.data, ...(data || {}) }
       };
 
-      await redis.set(`bot_session:${phone}`, JSON.stringify(newSession), 'EX', 3600); // 1 hour TTL
+      await redis.set(`bot_session:${phone}`, JSON.stringify(newSession), 'EX', 3600);
       res.status(200).json({ success: true, session: newSession });
     } catch (error: any) {
       console.error('[bot/session/update] error:', error);
@@ -792,9 +689,6 @@ export const botController = {
     }
   },
 
-  /**
-   * DELETE /bot/sessions/:phone
-   */
   async clearSession(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
@@ -806,11 +700,6 @@ export const botController = {
     }
   },
 
-  /**
-   * POST /bot/properties
-   * Body: { phone, address, flatCount, label }
-   * Final step of the ADD PROPERTY flow.
-   */
   async createProperty(req: Request, res: Response): Promise<void> {
     try {
       const { phone, address, flatCount, label } = z.object({
@@ -826,7 +715,6 @@ export const botController = {
         return;
       }
 
-      // Generate a unique Property Code (GRD-XXXX)
       let isUnique = false;
       let code = '';
       while (!isUnique) {

@@ -7,27 +7,65 @@ export const ussdController = {
   async handleRequest(req: Request, res: Response): Promise<void> {
     const { phoneNumber, text } = req.body;
 
-    // Split text by '*' to track depth in the USSD menu
     const parts = text.split('*');
-    const lastInput = parts[parts.length - 1];
 
-    // Basic Root Menu
     if (text === '') {
-      res.send(`CON Welcome to Gridee ⚡\n1. Buy Tokens\n2. Check Balance\n3. History\n4. Help`);
+      res.send(`CON Welcome to Gridee\n1. Buy Tokens\n2. Check Balance\n3. History\n4. Help`);
       return;
     }
 
-    // Route based on menu selection
     switch (parts[0]) {
-      case '2': // Balance
+      case '1':
+        await ussdController.handleBuy(phoneNumber, parts.slice(1).join('*'), res);
+        break;
+      case '2':
         await ussdController.handleBalance(phoneNumber, res);
         break;
-      case '3': // History
+      case '3':
         await ussdController.handleHistory(phoneNumber, res);
+        break;
+      case '4':
+        await ussdController.handleHelp(res);
         break;
       default:
         res.send(`END Invalid selection. Type the code again to restart.`);
     }
+  },
+
+  async handleBuy(phone: string, input: string, res: Response): Promise<void> {
+    if (!input) {
+      res.send(`CON Enter amount in Naira (e.g. 2000):`);
+      return;
+    }
+
+    const amount = parseInt(input, 10);
+    if (isNaN(amount) || amount <= 0) {
+      res.send(`CON Invalid amount. Enter a number (e.g. 2000):`);
+      return;
+    }
+
+    const grdPrice = parseFloat(process.env.GRD_PRICE_PER_NGN || '1');
+    const grdAmount = amount * grdPrice;
+    const kwh = grdAmount;
+
+    const user = await db('users').where({ phone }).first();
+    if (user && user.role === 'tenant') {
+      const tenant = await db('tenants').where({ user_id: user.id }).first();
+      const reference = `GRD-USSD-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+      if (tenant) {
+        await db('transactions').insert({
+          tenant_id: tenant.id,
+          amount_ngn: amount,
+          grd_amount: grdAmount,
+          payment_method: 'bank_transfer',
+          payment_ref: reference,
+          status: 'PENDING'
+        });
+      }
+    }
+
+    res.send(`END You're buying ${kwh} kWh for NGN ${amount.toLocaleString()}. Payment instructions will be sent to your phone via SMS.`);
   },
 
   async handleBalance(phone: string, res: Response): Promise<void> {
@@ -51,21 +89,20 @@ export const ussdController = {
 
       const balanceGrd = await getTokenBalance(user.wallet_address || '');
       const consumptionRate = parseFloat(process.env.CONSUMPTION_KWH_PER_HOUR || '0.5');
-      const kwhEquivalent = parseFloat(balanceGrd); // GRD is 1:1 with kWh for display
+      const hoursLeft = Math.floor(parseFloat(balanceGrd) / consumptionRate);
 
-      // Get last topup date
       const lastTx = await db('transactions')
         .where({ tenant_id: tenant.id, status: 'SUCCESSFUL' })
         .orderBy('created_at', 'desc')
         .first();
 
-      const dateStr = lastTx 
+      const dateStr = lastTx
         ? new Date(lastTx.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: '2-digit' })
         : 'Never';
 
       const responseText = ussdBalance(
         parseFloat(balanceGrd),
-        kwhEquivalent,
+        hoursLeft,
         dateStr,
         tenant.status === 'CONNECTED' ? 'Connected' : 'Disconnected'
       );
@@ -108,5 +145,9 @@ export const ussdController = {
       console.error('[ussd/history] error:', error);
       res.send(`END Failed to load history.`);
     }
+  },
+
+  async handleHelp(res: Response): Promise<void> {
+    res.send(`END Gridee Commands:\n1. Buy Tokens\n2. Check Balance\n3. History\n4. Help\n5. My Property (tenants)\nDial again for landlord menu.`);
   }
 };
