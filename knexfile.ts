@@ -10,4 +10,20 @@ export default {
       extension: 'ts',
     },
   },
+  test: {
+    client: 'pg',
+    connection: process.env.DATABASE_URL || 'postgresql://localhost/gridee_test',
+    migrations: {
+      directory: './migrations',
+      extension: 'ts',
+    },
+  },
+  production: {
+    client: 'pg',
+    connection: process.env.DATABASE_URL,
+    migrations: {
+      directory: './migrations',
+      extension: 'ts',
+    },
+  },
 };

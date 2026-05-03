@@ -1,7 +1,7 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
 
-import { sendOTP, verifyOTP } from '../src/services/otpService';
+import { otpService } from '../src/services/otpService';
 import { redis } from '../src/redis';
 
 async function runTest() {
@@ -14,7 +14,7 @@ async function runTest() {
 
   console.log(`--- Testing sendOTP for ${testPhone} ---`);
   try {
-    await sendOTP(testPhone);
+    await otpService.sendOTP(testPhone);
     console.log('OTP sent (check simulator or phone)');
 
     const key = `otp:${testPhone}`;
@@ -25,13 +25,13 @@ async function runTest() {
       const { code } = JSON.parse(stored);
       
       console.log('\n--- Testing verifyOTP (Wrong Code) ---');
-      const wrong = await verifyOTP(testPhone, '000000');
+      const wrong = await otpService.verifyOTP(testPhone, '000000');
       console.log('Verification with 000000 (Expect False):', wrong);
       const afterWrong = await redis.get(key);
       console.log('Redis content after 1st fail:', afterWrong);
 
       console.log('\n--- Testing verifyOTP (Correct Code) ---');
-      const correct = await verifyOTP(testPhone, code);
+      const correct = await otpService.verifyOTP(testPhone, code);
       console.log(`Verification with ${code} (Expect True):`, correct);
       const afterCorrect = await redis.get(key);
       console.log('Redis content after success (Expect null):', afterCorrect);
