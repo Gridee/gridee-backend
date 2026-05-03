@@ -5,8 +5,8 @@ import {
   InboundParseError,
   OutboundRejectedError,
   TransientSendError,
-} from '../../src/messaging/errors';
-import { WhatsAppCloudProvider } from '../../src/messaging/providers/WhatsAppCloudProvider';
+} from '../../src/integrations/messaging/errors';
+import { WhatsAppCloudProvider } from '../../src/integrations/messaging/providers/WhatsAppCloudProvider';
 
 const APP_SECRET = 'app-secret-test';
 const VERIFY_TOKEN = 'my-verify-token';

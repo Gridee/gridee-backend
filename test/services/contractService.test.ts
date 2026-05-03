@@ -247,7 +247,7 @@ describe("getTokenBalance", () => {
         const result = await getTokenBalance("0xUser");
 
         expect(mocks.mockBalanceOf).toHaveBeenCalledWith("0xUser");
-        expect(result).toBe("1.0");
+        expect(result).toBe("1");
     });
 });
 
@@ -312,6 +312,6 @@ describe("getPendingWithdrawals", () => {
         const result = await getPendingWithdrawals("0xLandlord");
 
         expect(mocks.mockPendingWithdrawals).toHaveBeenCalledWith("0xLandlord");
-        expect(result).toBe("5.0");
+        expect(result).toBe("5");
     });
 });

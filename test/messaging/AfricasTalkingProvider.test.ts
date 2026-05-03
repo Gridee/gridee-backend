@@ -1,7 +1,7 @@
 import type { Request } from 'express';
 import { describe, expect, it, vi } from 'vitest';
-import { AfricasTalkingProvider } from '../../src/messaging/providers/AfricasTalkingProvider';
-import { InboundParseError, OutboundRejectedError } from '../../src/messaging/errors';
+import { AfricasTalkingProvider } from '../../src/integrations/messaging/providers/AfricasTalkingProvider';
+import { InboundParseError, OutboundRejectedError } from '../../src/integrations/messaging/errors';
 
 const SECRET = 'shared-webhook-secret';
 
