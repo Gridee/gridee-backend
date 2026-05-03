@@ -4,7 +4,7 @@
  * This lets the top-level dispatcher distinguish our errors from unexpected ones.
  */
 export class GrideeError extends Error {
-  constructor(message: string, public override readonly cause?: unknown) {
+  constructor(message: string, public readonly cause?: unknown) {
     super(message);
     this.name = this.constructor.name;
     // Preserve stack trace in V8

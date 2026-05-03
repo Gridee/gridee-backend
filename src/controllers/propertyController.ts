@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { z } from 'zod';
 import { db } from '../db';
 import { contractService } from '../services/contractService';
@@ -16,7 +16,6 @@ export const propertyController = {
 
       const { address, label, flatCount, state } = propertySchema.parse(req.body);
 
-      // Generate Property Code
       const statePrefix = state.substring(0, 3).toUpperCase();
       
       const countRes = await db('properties')
@@ -29,7 +28,6 @@ export const propertyController = {
       
       const code = `GRD-${statePrefix}-${sequence.toString().padStart(4, '0')}`;
 
-      // Insert property
       const [newProperty] = await db('properties').insert({
         landlord_id: req.user.id,
         code,
@@ -40,7 +38,6 @@ export const propertyController = {
         status: 'ACTIVE'
       }).returning('*');
 
-      // Call contract service
       await contractService.registerProperty(code, flatCount, address);
 
       res.status(201).json({

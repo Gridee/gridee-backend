@@ -1,4 +1,4 @@
-import { GrideeError } from '../lib/errors';
+import { GrideeError } from '../../lib/errors';
 
 /** Generic messaging error — connection, API failure, parse error. */
 export class MessagingError extends GrideeError {}

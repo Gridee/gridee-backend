@@ -1,9 +1,11 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { ethers } from 'ethers';
 import { redis } from '../redis';
 import { db } from '../db';
 import { privyService } from '../services/privyService';
 import { otpService } from '../services/otpService';
+import { registerLandlordWallet, registerTenantWallet } from '../services/contractService';
 import { notificationService } from '../services/notificationService';
 import { contractService } from '../services/contractService';
 import * as jwt from 'jsonwebtoken';
@@ -17,7 +19,6 @@ export const authController = {
     try {
       const { name, phone } = registerSchema.parse(req.body);
       
-      // Store pending registration in Redis with 10-min (600s) TTL
       await redis.setex(`reg:${phone}`, 600, JSON.stringify({ name, phone, role: 'landlord' }));
       
       await otpService.sendOTP(phone);
@@ -37,19 +38,18 @@ export const authController = {
     try {
       const { name, phone, propertyCode } = tenantRegisterSchema.parse(req.body);
 
-      // Validate property code exists and is active
       const property = await db('properties').where({ code: propertyCode }).first();
       if (!property) {
         res.status(404).json({ error: "That Property Code wasn't found. Please check with your landlord and try again." });
         return;
       }
 
-      // Store pending registration in Redis with 10-min (600s) TTL
       await redis.setex(`reg:${phone}`, 600, JSON.stringify({ 
         name, 
         phone, 
         role: 'tenant', 
-        propertyId: property.id 
+        propertyId: property.id,
+        propertyCode: property.code
       }));
 
       await otpService.sendOTP(phone);
@@ -75,10 +75,8 @@ export const authController = {
         return;
       }
 
-      // Check for pending registration
       const pendingRegStr = await redis.get(`reg:${phone}`);
       if (!pendingRegStr) {
-        // Fallback to login if no pending registration
         const existingUser = await db('users').where({ phone }).first();
         if (!existingUser) {
           res.status(404).json({ error: 'User not found or registration expired' });
@@ -90,20 +88,17 @@ export const authController = {
         return;
       }
 
-      // Complete registration
       const pendingReg = JSON.parse(pendingRegStr);
       
-      // Insert user
       const [newUser] = await db('users').insert({
         name: pendingReg.name,
         phone: pendingReg.phone,
         role: pendingReg.role
       }).returning('*');
 
-      // Create an embedded wallet (Privy) off-chain, then map it on-chain.
-      const walletAddress = await privyService.createEmbeddedWallet(newUser.id);
-      await contractService.assignWallet(newUser.id, walletAddress);
-      // If role is tenant, link them to their property
+      const wallet = ethers.Wallet.createRandom();
+      const walletAddress = wallet.address;
+
       if (pendingReg.role === 'tenant') {
         await db('tenants').insert({
           user_id: newUser.id,
@@ -111,26 +106,22 @@ export const authController = {
           status: 'CONNECTED'
         });
 
-        // Notify the landlord about the new tenant
+        await registerTenantWallet(phone, walletAddress, pendingReg.propertyCode);
+
         await notificationService.notifyLandlord(pendingReg.propertyId, newUser.name);
+      } else {
+        await registerLandlordWallet(phone, walletAddress);
       }
 
-      // Call contract service
-    
-      
-
-      // Update user with wallet address
-      const [updatedUser] = await db('users')
+      await db('users')
         .where({ id: newUser.id })
-        .update({ wallet_address: walletAddress })
-        .returning('*');
+        .update({ wallet_address: walletAddress });
 
-      // Clean up Redis
       await redis.del(`reg:${phone}`);
 
-      const token = jwt.sign({ id: updatedUser.id, role: updatedUser.role }, JWT_SECRET, { expiresIn: '7d' });
+      const token = jwt.sign({ id: newUser.id, role: newUser.role }, JWT_SECRET, { expiresIn: '7d' });
 
-      res.status(201).json({ token, user: updatedUser });
+      res.status(201).json({ token, user: { ...newUser, wallet_address: walletAddress } });
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         res.status(400).json({ errors: error.issues });

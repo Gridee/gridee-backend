@@ -1,4 +1,4 @@
-import { ConfigError } from '../lib/errors';
+import { ConfigError } from '../../lib/errors';
 import type { IMessageSender, IMessagingProvider } from './IMessagingProvider';
 import { AfricasTalkingProvider } from './providers/AfricasTalkingProvider';
 import { TwilioProvider } from './providers/TwilioProvider';

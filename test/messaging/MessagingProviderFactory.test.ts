@@ -5,7 +5,7 @@ import {
   MessagingProviderFactory,
   TwilioProvider,
   WhatsAppCloudProvider,
-} from '../../src/messaging';
+} from '../../src/integrations/messaging';
 
 describe('MessagingProviderFactory', () => {
   it('builds a Twilio provider with full config', () => {

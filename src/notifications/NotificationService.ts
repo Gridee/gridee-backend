@@ -1,6 +1,6 @@
 import { logger } from '../lib/logger';
 import type { Phone } from '../lib/phone';
-import type { IMessageSender } from '../messaging';
+import type { IMessageSender } from '../integrations/messaging';
 import type { INotificationService, NotificationResult } from './INotificationService';
 import type { ISmsProvider } from './ISmsProvider';
 

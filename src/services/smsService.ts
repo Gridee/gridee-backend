@@ -1,25 +1,35 @@
 import axios from 'axios';
 
-export async function sendSMS(phone: string, message: string): Promise<void> {
-  const data = {
-    api_key: process.env.TERMII_API_KEY,
-    message_type: 'ALPHANUMERIC',
-    to: phone,
-    from: process.env.TERMII_SENDER_ID || 'N-Alert',
-    channel: 'generic',
-    pin_attempts: 3,
-    pin_time_to_live: 5,
-    pin_length: 6,
-    pin_placeholder: '< 123456 >',
-    message_text: message,
-    pin_type: 'NUMERIC',
-  };
+const AT_API_KEY = process.env.AFRICAS_TALKING_API_KEY;
+const AT_USERNAME = process.env.AFRICAS_TALKING_USERNAME;
+const AT_SENDER_ID = process.env.AT_SENDER_ID || 'Gridee';
 
-  try {
-    const response = await axios.post(`${process.env.TERMII_BASE_URL}/api/sms/otp/send`, data);
-    console.log('Termii Token sent successfully:', response.data);
-  } catch (error: any) {
-    console.error('Termii Token delivery failed:', error.response?.data || error.message);
-    throw new Error('SMS delivery failed');
+export async function sendSMS(phone: string, message: string): Promise<void> {
+  if (!AT_API_KEY || !AT_USERNAME) {
+    throw new Error('Africa\'s Talking credentials not configured');
+  }
+
+  const data = new URLSearchParams({
+    username: AT_USERNAME,
+    to: phone,
+    message: message,
+    from: AT_SENDER_ID,
+  });
+
+  const response = await axios.post(
+    'https://api.africastalking.com/version1/messaging',
+    data,
+    {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'ApiKey': AT_API_KEY,
+        'Accept': 'application/json',
+      },
+    }
+  );
+
+  const result = response.data;
+  if (result.SMSMessageData?.Recipients?.[0]?.status !== 'Success') {
+    throw new Error(`SMS delivery failed: ${JSON.stringify(result)}`);
   }
 }

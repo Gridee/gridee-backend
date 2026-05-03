@@ -3,11 +3,15 @@ import { AuthRequest } from '../middleware/auth';
 import { db } from '../db';
 import { getTokenBalance } from '../services/contractService';
 
+function calculateBalance(balanceGrd: string) {
+  const consumptionRate = parseFloat(process.env.CONSUMPTION_KWH_PER_HOUR || '0.5');
+  const hoursLeft = Math.floor(parseFloat(balanceGrd) / consumptionRate);
+  const grdPrice = parseFloat(process.env.GRD_PRICE_PER_NGN || '1');
+  const balanceNGN = parseFloat(balanceGrd) / grdPrice;
+  return { hoursLeft, balanceNGN: Math.round(balanceNGN * 100) / 100 };
+}
+
 export const tenantController = {
-  /**
-   * GET /api/tenants/balance
-   * Returns on-chain GRD balance, hours remaining, and property info for the logged-in tenant.
-   */
   async getBalance(req: AuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
@@ -34,21 +38,16 @@ export const tenantController = {
       }
 
       const balanceGrd = await getTokenBalance(user.wallet_address || '');
-      const consumptionRate = parseFloat(process.env.CONSUMPTION_KWH_PER_HOUR || '0.5');
-      const hoursLeft = Math.floor(parseFloat(balanceGrd) / consumptionRate);
+      const { hoursLeft, balanceNGN } = calculateBalance(balanceGrd);
 
       const lastTx = await db('transactions')
         .where({ tenant_id: tenant.id, status: 'SUCCESSFUL' })
         .orderBy('created_at', 'desc')
         .first();
 
-      // Calculate NGN equivalent
-      const grdPrice = parseFloat(process.env.GRD_PRICE_PER_NGN || '1');
-      const balanceNGN = parseFloat(balanceGrd) / grdPrice;
-
       res.status(200).json({
         balanceGrd: parseFloat(balanceGrd),
-        balanceNGN: Math.round(balanceNGN * 100) / 100,
+        balanceNGN,
         hoursRemaining: hoursLeft,
         propertyLabel: tenant.propertyLabel,
         lastTopup: lastTx ? lastTx.created_at : 'Never',
@@ -60,10 +59,6 @@ export const tenantController = {
     }
   },
 
-  /**
-   * GET /api/tenants/history
-   * Returns last 10 transactions for the logged-in tenant.
-   */
   async getHistory(req: AuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;

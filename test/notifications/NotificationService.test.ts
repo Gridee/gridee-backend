@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Phone } from '../../src/lib/phone';
-import type { IMessageSender, MessageReceipt, OutboundMessage } from '../../src/messaging';
+import type { IMessageSender, MessageReceipt, OutboundMessage } from '../../src/integrations/messaging';
 import { NotificationService } from '../../src/notifications/NotificationService';
 import type { ISmsProvider, SmsReceipt } from '../../src/notifications/ISmsProvider';
 

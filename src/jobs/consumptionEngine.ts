@@ -1,100 +1,110 @@
-import * as cron from 'node-cron';
-import { logger } from '../lib/logger';
-import type { ConsumptionService } from '../services';
+import cron from 'node-cron';
+import { db } from '../db';
+import { HAL } from '../hal';
+import { lowBalanceAlert, cutoffNotice, restoredNotice } from '../services/templateService';
+import { sendSMS } from '../services/smsService';
+
+const CONSUMPTION_KWH_PER_HOUR = parseFloat(process.env.CONSUMPTION_KWH_PER_HOUR || '0.5');
+const LOW_BALANCE_THRESHOLD = 1;
 
 export interface ConsumptionEngineOptions {
-  service: ConsumptionService;
-  /**
-   * Cron schedule. Default: every hour at minute 0 (`0 * * * *`).
-   * For tests / demos: use a faster cadence like `*\/2 * * * * *` (every 2s, 6-field).
-   */
   schedule?: string;
-  /**
-   * If true, run a tick once immediately at startup. Default false.
-   * Useful for demos so you don't have to wait an hour.
-   */
   runOnStart?: boolean;
 }
 
 export interface ConsumptionEngineHandle {
-  /** Stop the cron — releases the timer. Idempotent. */
   stop(): void;
-  /** Manually trigger a tick — useful for tests / demos. */
   triggerNow(): Promise<void>;
 }
 
-/**
- * Wires ConsumptionService.tick() to a cron schedule.
- *
- * Failure isolation: if `tick()` throws, the cron continues firing on
- * schedule. We log the failure but never let it propagate up to crash the
- * process.
- *
- * Concurrency: if a previous tick is still running when the next fire
- * arrives, the new fire is SKIPPED with a warning (logged). This matters
- * for the MVP because each tick reads ALL tenants — a slow run shouldn't
- * stack up overlapping deductions.
- */
-export function startConsumptionEngine(opts: ConsumptionEngineOptions): ConsumptionEngineHandle {
-  const schedule = opts.schedule ?? '0 * * * *';
-  const log = logger.child({ component: 'consumptionEngine' });
-
-  if (!cron.validate(schedule)) {
-    throw new Error(`Invalid cron schedule: "${schedule}"`);
+async function notifyTenant(phone: string, message: string): Promise<void> {
+  try {
+    await sendSMS(phone, message);
+  } catch {
+    console.error(`[consumption] Failed to notify tenant ${phone}`);
   }
+}
 
-  let running = false;
+async function runConsumptionCycle(): Promise<void> {
+  try {
+    const activeTenants = await db('tenants')
+      .join('users', 'tenants.user_id', 'users.id')
+      .where({ 'tenants.status': 'CONNECTED' })
+      .select('tenants.id', 'users.phone', 'users.wallet_address');
 
-  const runOnce = async (): Promise<void> => {
-    if (running) {
-      log.warn('Previous tick still running; skipping this fire');
-      return;
+    let processed = 0;
+    let alertsSent = 0;
+    let cutOffs = 0;
+
+    for (const tenant of activeTenants) {
+      processed++;
+
+      try {
+        const balanceBefore = await HAL.getMeterBalance(tenant.id);
+
+        await HAL.deductConsumption(tenant.id, CONSUMPTION_KWH_PER_HOUR);
+
+        const balanceAfter = await HAL.getMeterBalance(tenant.id);
+
+        if (balanceAfter <= 0 && balanceBefore > 0) {
+          await HAL.cutOff(tenant.id);
+          cutOffs++;
+          if (tenant.phone) {
+            await notifyTenant(tenant.phone, cutoffNotice());
+          }
+          console.log(`[consumption] Tenant ${tenant.id} cut off (balance: ${balanceAfter})`);
+        } else if (balanceAfter < LOW_BALANCE_THRESHOLD && balanceBefore >= LOW_BALANCE_THRESHOLD) {
+          alertsSent++;
+          if (tenant.phone) {
+            await notifyTenant(tenant.phone, lowBalanceAlert(balanceAfter, balanceAfter));
+          }
+          console.log(`[consumption] Tenant ${tenant.id} low balance alert (balance: ${balanceAfter})`);
+        } else if (balanceAfter > 0 && balanceBefore <= 0) {
+          await HAL.reconnect(tenant.id);
+          if (tenant.phone) {
+            await notifyTenant(tenant.phone, restoredNotice(balanceAfter));
+          }
+          console.log(`[consumption] Tenant ${tenant.id} reconnected (balance: ${balanceAfter})`);
+        }
+      } catch (error) {
+        console.error(`[consumption] Error processing tenant ${tenant.id}:`, error);
+      }
     }
-    running = true;
-    try {
-      const result = await opts.service.tick();
-      log.info(
-        {
-          total: result.total,
-          processed: result.processed,
-          skipped: result.skipped,
-          errored: result.errored,
-          lowBalanceAlertsFired: result.lowBalanceAlertsFired,
-          cutoffsApplied: result.cutoffsApplied,
-          durationMs: result.durationMs,
-        },
-        'Tick complete',
-      );
-    } catch (err) {
-      log.error(
-        { err: (err as Error).message, stack: (err as Error).stack },
-        'Tick threw — cron will continue on schedule',
-      );
-    } finally {
-      running = false;
-    }
-  };
 
-  const task = cron.schedule(schedule, () => {
-    runOnce().catch((err: unknown) => {
-      log.error({ err: (err as Error).message }, 'runOnce promise rejected');
-    });
-  });
+    console.log(`[consumption] Cycle complete: ${processed} processed, ${alertsSent} alerts, ${cutOffs} cut-offs`);
+  } catch (error) {
+    console.error('[consumption] Cycle failed:', error);
+  }
+}
 
-  log.info({ schedule }, 'Consumption engine started');
+let scheduledTask: cron.ScheduledTask | null = null;
 
-  if (opts.runOnStart) {
-    // Fire immediately, but without blocking the caller
-    runOnce().catch(() => undefined);
+export function startConsumptionEngine(opts?: ConsumptionEngineOptions): ConsumptionEngineHandle {
+  scheduledTask = cron.schedule('0 * * * *', runConsumptionCycle);
+  console.log('[consumption] Engine started — runs every hour');
+
+  if (opts?.runOnStart) {
+    runConsumptionCycle().catch(() => undefined);
   }
 
   return {
     stop(): void {
-      task.stop();
-      log.info('Consumption engine stopped');
+      if (scheduledTask) {
+        scheduledTask.stop();
+        scheduledTask = null;
+        console.log('[consumption] Engine stopped');
+      }
     },
     triggerNow(): Promise<void> {
-      return runOnce();
-    },
+      return runConsumptionCycle();
+    }
   };
+}
+
+export function stopConsumptionEngine(): void {
+  if (scheduledTask) {
+    scheduledTask.stop();
+    scheduledTask = null;
+    console.log('[consumption] Engine stopped');
+  }
 }

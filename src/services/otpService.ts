@@ -2,11 +2,14 @@ import { redis } from '../redis';
 import { sendSMS } from './smsService';
 import crypto from 'crypto';
 
+const USE_TEST_OTP = process.env.USE_TEST_OTP === 'true';
+const TEST_PHONE_PATTERNS = (process.env.TEST_PHONE_PATTERNS || '8000000000,8000000001').split(',');
+const TEST_OTP_CODE = process.env.TEST_OTP_CODE || '123456';
+
 export const otpService = {
   async generateOTP(phone?: string): Promise<string> {
-    // If it's an internal test number, return 123456
-    if (phone && (phone.includes('8000000000') || phone.includes('8000000001'))) {
-      return '123456';
+    if (USE_TEST_OTP && phone && TEST_PHONE_PATTERNS.some(pattern => phone.includes(pattern))) {
+      return TEST_OTP_CODE;
     }
     return crypto.randomInt(100000, 999999).toString();
   },

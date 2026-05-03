@@ -2,8 +2,8 @@ import { createHmac } from 'crypto';
 import type { Request } from 'express';
 import { describe, expect, it } from 'vitest';
 import { Phone } from '../../src/lib/phone';
-import { InboundParseError } from '../../src/messaging/errors';
-import { TwilioProvider } from '../../src/messaging/providers/TwilioProvider';
+import { InboundParseError } from '../../src/integrations/messaging/errors';
+import { TwilioProvider } from '../../src/integrations/messaging/providers/TwilioProvider';
 
 const ACCOUNT_SID = 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
 const AUTH_TOKEN = 'test-auth-token-secret';

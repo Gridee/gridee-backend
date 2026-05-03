@@ -1,7 +1,7 @@
 import type { Request } from 'express';
-import { logger } from '../../lib/logger';
-import { Phone } from '../../lib/phone';
-import { safeMessage } from '../../lib/safeMessage';
+import { logger } from '../../../lib/logger';
+import { Phone } from '../../../lib/phone';
+import { safeMessage } from '../../../lib/safeMessage';
 import {
   InboundParseError,
   OutboundRejectedError,

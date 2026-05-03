@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Phone } from '../lib/phone';
+import { Phone } from '../../lib/phone';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // InboundMessage — provider-agnostic shape after each provider parses its
