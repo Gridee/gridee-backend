@@ -1,4 +1,4 @@
-import { db } from './src/db';
+import { db } from '../src/db';
 
 async function checkUser() {
   const phone = 'whatsapp:+2348000000000';
