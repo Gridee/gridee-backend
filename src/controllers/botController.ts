@@ -8,12 +8,8 @@ import { getTokenBalance, registerLandlordWallet, registerTenantWallet } from '.
 import { notificationService } from '../services/notificationService';
 import * as jwt from 'jsonwebtoken';
 
-<<<<<<< Updated upstream
-const JWT_SECRET = process.env.JWT_SECRET as string;
-const LANDLORD_SHARE_BPS = parseInt(process.env.LANDLORD_SHARE_BPS || '1800', 10);
-=======
 const JWT_SECRET = process.env.JWT_SECRET || 'gridee_fallback_secret_key_2026';
->>>>>>> Stashed changes
+const LANDLORD_SHARE_BPS = parseInt(process.env.LANDLORD_SHARE_BPS || '1800', 10);
 
 export const botController = {
 
@@ -150,10 +146,6 @@ export const botController = {
         return;
       }
 
-<<<<<<< Updated upstream
-      const existingUser = await db('users').where({ phone: verificationPhone }).first();
-      if (existingUser) {
-=======
       // Check if user already exists (by WhatsApp phone or verification phone)
       let user = await db('users').where({ phone: verificationPhone }).first();
       
@@ -163,25 +155,16 @@ export const botController = {
       }
 
       if (user && user.role === 'tenant' && user.name !== 'New User') {
->>>>>>> Stashed changes
         res.status(409).json({ success: false, error: 'User already registered' });
         return;
       }
 
-<<<<<<< Updated upstream
-      const [newUser] = await db('users').insert({
-        name,
-        phone: verificationPhone,
-        role: 'tenant',
-      }).returning('*');
-=======
       if (user) {
         // Update existing shell user or user found by verification phone
         const [updatedUser] = await db('users')
           .where({ id: user.id })
           .update({
             name,
-            // phone: verificationPhone, // REMOVED: Keep the original WhatsApp phone for bot recognition
             role: 'tenant',
           })
           .returning('*');
@@ -195,7 +178,6 @@ export const botController = {
         }).returning('*');
         user = newUser;
       }
->>>>>>> Stashed changes
 
       await db('tenants').insert({
         user_id: user.id,
@@ -203,36 +185,24 @@ export const botController = {
         status: 'CONNECTED',
       });
 
-<<<<<<< Updated upstream
-      const wallet = ethers.Wallet.createRandom();
-      const walletAddress = wallet.address;
-      await registerTenantWallet(verificationPhone, walletAddress, property.code);
-      await db('users').where({ id: newUser.id }).update({ wallet_address: walletAddress });
-
-      await notificationService.notifyLandlord(property.id, name);
-
-      const token = jwt.sign({ id: newUser.id, role: 'tenant' }, JWT_SECRET, { expiresIn: '7d' });
-=======
       // Assign custodial wallet
       const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0');
       try {
         // Run blockchain call in the background without awaiting so it never blocks the demo
-        assignWallet(user.id, walletAddress).catch(chainError => {
-          console.error('[bot/tenants/register] background assignWallet failed:', chainError);
+        registerTenantWallet(verificationPhone, walletAddress, property.code).catch((chainError: any) => {
+          console.error('[bot/tenants/register] background registerTenantWallet failed:', chainError);
         });
       } catch (e) { }
       await db('users').where({ id: user.id }).update({ wallet_address: walletAddress });
 
-      // Notify landlord (WhatsApp first, SMS fallback) - wrapped in try-catch so registration doesn't fail
+      // Notify landlord
       try {
         await notificationService.notifyLandlord(property.id, name);
       } catch (notifyError) {
         console.error('[bot/tenants/register] landlord notification failed:', notifyError);
       }
 
-      // Sign JWT
       const token = jwt.sign({ id: user.id, role: 'tenant' }, JWT_SECRET, { expiresIn: '7d' });
->>>>>>> Stashed changes
 
       res.status(201).json({
         success: true,
@@ -262,17 +232,6 @@ export const botController = {
         return;
       }
 
-<<<<<<< Updated upstream
-      const [newUser] = await db('users').insert({
-        name,
-        phone: verificationPhone,
-        role: 'landlord',
-      }).returning('*');
-
-      const wallet = ethers.Wallet.createRandom();
-      const walletAddress = wallet.address;
-      await registerLandlordWallet(verificationPhone, walletAddress);
-=======
       let newUser;
       if (existingUser) {
         [newUser] = await db('users')
@@ -294,11 +253,10 @@ export const botController = {
       const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0');
       try {
         // Run blockchain call in the background without awaiting so it never blocks the demo
-        assignWallet(newUser.id, walletAddress).catch(chainError => {
-          console.error('[bot/landlords/register] background assignWallet failed:', chainError);
+        registerLandlordWallet(verificationPhone, walletAddress).catch((chainError: any) => {
+          console.error('[bot/landlords/register] background registerLandlordWallet failed:', chainError);
         });
       } catch (e) { }
->>>>>>> Stashed changes
       await db('users').where({ id: newUser.id }).update({ wallet_address: walletAddress });
 
       const token = jwt.sign({ id: newUser.id, role: 'landlord' }, JWT_SECRET, { expiresIn: '7d' });
@@ -340,12 +298,8 @@ export const botController = {
       }
 
       const balanceGrd = await getTokenBalance(user.wallet_address || '');
-<<<<<<< Updated upstream
-      
-=======
 
       // Calculate hours remaining (MVP: use fixed rate from .env)
->>>>>>> Stashed changes
       const consumptionRate = parseFloat(process.env.CONSUMPTION_KWH_PER_HOUR || '0.5');
       const hoursLeft = Math.floor(parseFloat(balanceGrd) / consumptionRate);
 
@@ -466,21 +420,6 @@ export const botController = {
         .select('properties.*')
         .orderBy('created_at', 'desc');
 
-<<<<<<< Updated upstream
-      const tenantCounts = await db('tenants')
-        .whereIn('property_id', properties.map(p => p.id))
-        .groupBy('property_id')
-        .select('property_id')
-        .count('id as count');
-
-      const countMap = new Map<number, number>();
-      tenantCounts.forEach((row: any) => countMap.set(row.property_id, Number(row.count)));
-
-      const enhancedProperties = properties.map(p => ({
-        ...p,
-        activeTenantCount: countMap.get(p.id) || 0
-      }));
-=======
       const enhancedProperties = await Promise.all(
         properties.map(async (p) => {
           const tenantCount = await db('tenants').where({ property_id: p.id }).count('id as count').first();
@@ -491,7 +430,6 @@ export const botController = {
           };
         })
       );
->>>>>>> Stashed changes
 
       res.status(200).json({ properties: enhancedProperties });
     } catch (error: any) {
@@ -556,16 +494,12 @@ export const botController = {
         .where({ 'tenants.property_id': property.id })
         .select('users.name', 'users.phone', 'tenants.status');
 
-<<<<<<< Updated upstream
-      res.status(200).json({ property: { code: property.code, label: property.label, flatCount: property.flat_count, occupiedCount: tenants.length }, tenants });
-=======
       const formattedTenants = tenants.map(t => ({
         ...t,
         flatNumber: '' // Currently not in schema
       }));
 
       res.status(200).json({ tenants: formattedTenants });
->>>>>>> Stashed changes
     } catch (error: any) {
       console.error('[bot/landlord/property/tenants] error:', error);
       res.status(500).json({ error: 'Failed to fetch tenants' });
@@ -662,13 +596,8 @@ export const botController = {
         return;
       }
 
-<<<<<<< Updated upstream
-      res.status(200).json({ 
-=======
-      // Check if user has bank details (we might need to add these columns to users table or a separate table)
-      // For now, let's assume they are in the users table or we return null
+      // Check if user has bank details
       res.status(200).json({
->>>>>>> Stashed changes
         bankName: user.bank_name || null,
         accountNumber: user.account_number || null
       });
@@ -854,10 +783,7 @@ export const botController = {
         return;
       }
 
-<<<<<<< Updated upstream
-=======
       // Generate a unique Property Code (GRD-LAG-0042 style)
->>>>>>> Stashed changes
       let isUnique = false;
       let code = '';
       // Extract state abbreviation from address (first 3 letters of last word, default LAG)
