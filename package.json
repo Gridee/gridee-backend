@@ -28,7 +28,12 @@
     "pg": "^8.20.0",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "@types/node-cron": "^3.0.11",
+    "node-cron": "^4.2.1",
+    "pino": "^10.0.0",
+    "redis": "^5.0.0",
+    "twilio": "^5.0.0"
   },
   "devDependencies": {
     "@types/africastalking": "^0.6.2",
@@ -37,6 +42,11 @@
     "@types/node": "^25.6.0",
     "@types/pg": "^8.20.0",
     "ts-node-dev": "^2.0.0",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.5",
+    "@types/supertest": "^7.0.0",
+    "supertest": "^7.0.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
   }
 }
