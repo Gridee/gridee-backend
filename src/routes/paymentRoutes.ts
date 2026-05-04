@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db';
 import { mintTokens, distributeRevenue, getTokenBalance } from '../services/contractService';
 import crypto from 'crypto';
+import { TRANSACTION_STATUS } from '../constants/transactionStatus';
 
 const router = Router();
 
@@ -33,7 +34,7 @@ router.post('/initiate', async (req, res) => {
       grd_amount: grdAmount,
       payment_method: method,
       payment_ref: reference,
-      status: 'PENDING'
+      status: TRANSACTION_STATUS.PENDING
     }).returning('*');
 
     if (method === 'bank_transfer') {
@@ -84,7 +85,7 @@ router.post('/webhook', async (req, res) => {
       return;
     }
 
-    if (transaction.status === 'SUCCESSFUL') {
+    if (transaction.status === TRANSACTION_STATUS.COMPLETED) {
       res.status(200).json({ received: true });
       return;
     }
@@ -113,7 +114,7 @@ router.post('/webhook', async (req, res) => {
       await db('tenants').where({ id: tenant.tenant_id }).update({ status: 'CONNECTED' });
     }
 
-    await db('transactions').where({ id: transaction.id }).update({ status: 'SUCCESSFUL' });
+    await db('transactions').where({ id: transaction.id }).update({ status: TRANSACTION_STATUS.COMPLETED });
 
     const newBalance = await getTokenBalance(tenant.wallet_address);
 

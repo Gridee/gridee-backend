@@ -14,6 +14,7 @@ import botRoutes from './routes/botRoutes';
 import ussdRoutes from './routes/ussdRoutes';
 import landlordRoutes from './routes/landlordRoutes';
 import paymentRoutes from './routes/paymentRoutes';
+import halRoutes from './routes/halRoutes';
 import { startConsumptionEngine, stopConsumptionEngine } from './jobs/consumptionEngine';
 
 dotenv.config();
@@ -64,7 +65,41 @@ app.use('/api/tenants', generalLimiter, tenantRoutes);
 app.use('/api/ussd', ussdRoutes);
 app.use('/api/landlord', generalLimiter, landlordRoutes);
 app.use('/api/payments', generalLimiter, paymentRoutes);
+app.use('/api/hal', generalLimiter, halRoutes);
 app.use('/bot', botRoutes);
+
+app.get('/dev/meter-sim', (_req, res) => {
+  if (process.env.IS_DEV !== 'true') {
+    res.status(403).send('Only available when IS_DEV=true');
+    return;
+  }
+
+  res.type('html').send(`<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Meter Simulator</title>
+<style>
+body{font-family:Arial,sans-serif;margin:24px;background:#f6f7fb}
+.card{max-width:760px;background:#fff;padding:20px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+input,button{padding:10px;border:1px solid #ccc;border-radius:8px}
+button{background:#111;color:#fff;cursor:pointer}
+pre{background:#111;color:#00ff7f;padding:12px;border-radius:8px}
+</style></head>
+<body><div class="card"><h2>Gridee Meter Simulator</h2><p>Dev-only helper for live demos.</p>
+<div class="row"><input id="tenantId" type="number" placeholder="Tenant ID"/><input id="kwh" type="number" step="0.1" value="0.5" placeholder="kWh"/></div>
+<div class="row"><button onclick="consume()">Simulate Consumption</button><button onclick="consumeFast()">Simulate 2 kWh</button><button onclick="cutoff()">Force Cut-off</button><button onclick="recon()">Force Reconnect</button></div>
+<pre id="out">Ready.</pre></div>
+<script>
+const out=document.getElementById('out');
+const tenantId=()=>Number(document.getElementById('tenantId').value);
+const kwh=()=>Number(document.getElementById('kwh').value||0.5);
+async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});out.textContent=JSON.stringify(await r.json(),null,2);}
+function consume(){post('/api/hal/mock-consume',{tenantId:tenantId(),kwhAmount:kwh()});}
+function consumeFast(){post('/api/hal/mock-consume',{tenantId:tenantId(),kwhAmount:2});}
+function cutoff(){post('/api/hal/cutoff',{tenantId:tenantId()});}
+function recon(){post('/api/hal/reconnect',{tenantId:tenantId()});}
+</script></body></html>`);
+});
 
 app.get('/health', async (req, res) => {
   const status: Record<string, string> = {};

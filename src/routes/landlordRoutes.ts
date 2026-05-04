@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db';
+import { TRANSACTION_STATUS } from '../constants/transactionStatus';
 
 const LANDLORD_SHARE_BPS = parseInt(process.env.LANDLORD_SHARE_BPS || '1800', 10);
 
@@ -88,7 +89,7 @@ router.get('/earnings', async (req, res) => {
 
     const earnings = await db('transactions')
       .whereIn('property_id', propertyIds)
-      .where({ status: 'SUCCESSFUL' })
+      .where({ status: TRANSACTION_STATUS.COMPLETED })
       .select('property_id')
       .sum('amount_ngn as total')
       .groupBy('property_id');

@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { db } from '../db';
 import { getTokenBalance } from '../services/contractService';
+import { TRANSACTION_STATUS } from '../constants/transactionStatus';
 
 function calculateBalance(balanceGrd: string) {
   const consumptionRate = parseFloat(process.env.CONSUMPTION_KWH_PER_HOUR || '0.5');
@@ -41,7 +42,7 @@ export const tenantController = {
       const { hoursLeft, balanceNGN } = calculateBalance(balanceGrd);
 
       const lastTx = await db('transactions')
-        .where({ tenant_id: tenant.id, status: 'SUCCESSFUL' })
+        .where({ tenant_id: tenant.id, status: TRANSACTION_STATUS.COMPLETED })
         .orderBy('created_at', 'desc')
         .first();
 

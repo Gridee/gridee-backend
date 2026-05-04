@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { db } from '../db';
 import { getTokenBalance } from '../services/contractService';
 import { ussdBalance, ussdHistory } from '../services/templateService';
+import { TRANSACTION_STATUS } from '../constants/transactionStatus';
 
 export const ussdController = {
   async handleRequest(req: Request, res: Response): Promise<void> {
@@ -92,7 +93,7 @@ export const ussdController = {
       const hoursLeft = Math.floor(parseFloat(balanceGrd) / consumptionRate);
 
       const lastTx = await db('transactions')
-        .where({ tenant_id: tenant.id, status: 'SUCCESSFUL' })
+        .where({ tenant_id: tenant.id, status: TRANSACTION_STATUS.COMPLETED })
         .orderBy('created_at', 'desc')
         .first();
 
