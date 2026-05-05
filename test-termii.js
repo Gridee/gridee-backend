@@ -1,14 +1,22 @@
+require('dotenv').config();
 const axios = require('axios');
 
-const data = {
-  api_key: "TLnoraevPvdqXhwFowDRulQZdbXbWaImhPbPcBMqiDGlLPSJzAhCrLBXeZgrAN",
-  to: "2348000000000",
-  from: "N-Alert",
-  sms: "Test message",
-  type: "plain",
-  channel: "dnd"
-};
+async function testTermii() {
+  const data = {
+    api_key: process.env.TERMII_API_KEY,
+    to: "2347037730398",
+    from: process.env.TERMII_SENDER_ID || "N-Alert",
+    sms: "Test Gridee Message",
+    type: "plain",
+    channel: "generic"
+  };
 
-axios.post("https://v3.api.termii.com/api/sms/send", data)
-  .then(res => console.log('SUCCESS:', res.data))
-  .catch(err => console.error('FAILED:', err.response ? err.response.data : err.message));
+  try {
+    const response = await axios.post(`${process.env.TERMII_BASE_URL}/api/sms/send`, data);
+    console.log("Success:", response.data);
+  } catch (error) {
+    console.error("Termii Error:", error.response?.data || error.message);
+  }
+}
+
+testTermii();
