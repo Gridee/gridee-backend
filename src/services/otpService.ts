@@ -22,7 +22,17 @@ export const otpService = {
     await redis.set(key, value, 'EX', 300);
 
     const message = `Your Gridee verification code is: ${code}. Valid for 5 minutes.`;
-    await sendSMS(phone, message);
+    
+    // IMPORTANT: Print the valid Redis code to the terminal for the pitch
+    console.log('\n=========================================');
+    console.log(`✅ URGENT PITCH FAILSAFE (VALID CODE): ${code}`);
+    console.log('=========================================\n');
+    
+    // Send SMS in the background — OTP is already saved in Redis above,
+    // so if SMS fails the flow still works (user reads code from terminal)
+    sendSMS(phone, message).catch((err: any) => {
+      console.warn('[otpService] SMS delivery failed (OTP still valid in Redis):', err?.message || err);
+    });
   },
 
   async verifyOTP(phone: string, code: string): Promise<boolean> {

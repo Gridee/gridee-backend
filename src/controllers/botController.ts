@@ -3,697 +3,545 @@ import { z } from 'zod';
 import { ethers } from 'ethers';
 import { redis } from '../redis';
 import { db } from '../db';
-import { logger } from '../lib/logger';
 import { otpService } from '../services/otpService';
 import { getTokenBalance, registerLandlordWallet, registerTenantWallet } from '../services/contractService';
 import { notificationService } from '../services/notificationService';
 import * as jwt from 'jsonwebtoken';
+import { withBotHandler } from '../utils/botHandler';
 
-const JWT_SECRET = process.env.JWT_SECRET as string;
+const JWT_SECRET = process.env.JWT_SECRET || 'gridee_fallback_secret_key_2026';
 const LANDLORD_SHARE_BPS = parseInt(process.env.LANDLORD_SHARE_BPS || '1800', 10);
-const GRD_PRICE_PER_NGN = parseFloat(process.env.GRD_PRICE_PER_NGN || '1');
-const CONSUMPTION_KWH_PER_HOUR = parseFloat(process.env.CONSUMPTION_KWH_PER_HOUR || '0.5');
-
-const phoneSchema = z.string().min(7).max(15);
-const normalizePhone = (phone: string): string => phone.replace(/[^\d+]/g, '');
-
-type BotError = {
-  status: number;
-  message: string;
-  code?: string;
-};
-
-const botError = (status: number, message: string, code?: string): BotError => ({ status, message, code });
-
-const withBotHandler = (
-  handler: (req: Request, res: Response) => Promise<void>
-) => async (req: Request, res: Response): Promise<void> => {
-  try {
-    await handler(req, res);
-  } catch (error: unknown) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ success: false, error: 'Validation failed', details: error.issues });
-      return;
-    }
-    const err = error as Error;
-    logger.error({ err: err.message, stack: err.stack, path: req.path }, 'Bot handler error');
-    res.status(500).json({ success: false, error: 'Internal server error' });
-  }
-};
 
 export const botController = {
-  resolveUser: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.body);
-    const user = await db('users').where({ phone }).first() ?? null;
-    res.status(200).json({ success: true, user });
-  }),
 
-  setUserRole: withBotHandler(async (req, res) => {
-    const { phone, role } = z.object({
-      phone: phoneSchema,
-      role: z.enum(['landlord', 'tenant']),
-    }).parse(req.body);
-
-    const existing = await db('users').where({ phone }).first();
-    if (existing) {
-      const [updated] = await db('users').where({ phone }).update({ role }).returning('*');
-      res.status(200).json({ success: true, user: updated });
-      return;
+  resolveUser: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }) => {
+      const user = await db('users').where({ phone }).first() ?? null;
+      return { user };
     }
+  ),
 
-    const [newUser] = await db('users').insert({ phone, role, name: null }).returning('*');
-    res.status(200).json({ success: true, user: newUser });
-  }),
-
-  sendOtp: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.body);
-    await otpService.sendOTP(phone);
-    res.status(200).json({ success: true, sent: true });
-  }),
-
-  verifyOtp: withBotHandler(async (req, res) => {
-    const { phone, code } = z.object({
-      phone: phoneSchema,
-      code: z.string().length(6),
-    }).parse(req.body);
-
-    const valid = await otpService.verifyOTP(phone, code);
-    res.status(200).json({ success: true, valid });
-  }),
-
-  validatePropertyCode: withBotHandler(async (req, res) => {
-    const code = String(req.params.code || '').toUpperCase();
-    if (!code) {
-      res.status(400).json({ success: false, valid: false, error: 'Property code is required' });
-      return;
+  setUserRole: withBotHandler(
+    z.object({ phone: z.string().min(7), role: z.enum(['landlord', 'tenant']) }),
+    async ({ phone, role }) => {
+      const existing = await db('users').where({ phone }).first();
+      if (existing) {
+        const [updated] = await db('users').where({ phone }).update({ role }).returning('*');
+        return { user: updated };
+      }
+      const [newUser] = await db('users').insert({ phone, role, name: 'New User' }).returning('*');
+      return { user: newUser };
     }
+  ),
 
-    const property = await db('properties').where({ code, status: 'ACTIVE' }).first();
-    res.status(200).json({ success: true, valid: !!property });
-  }),
-
-  getHelp: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.params);
-    const user = await db('users').where({ phone }).first();
-
-    if (!user) {
-      res.status(404).json({ success: false, error: 'User not found' });
-      return;
+  sendOtp: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }) => {
+      await otpService.sendOTP(phone);
+      return { sent: true };
     }
+  ),
 
-    res.status(200).json({ success: true, role: user.role });
-  }),
-
-  registerTenant: withBotHandler(async (req, res) => {
-    const { phone, name, verificationPhone, propertyCode } = z.object({
-      phone: phoneSchema,
-      name: z.string().min(1).max(100),
-      verificationPhone: phoneSchema,
-      propertyCode: z.string().min(3).max(20),
-    }).parse(req.body);
-
-    const property = await db('properties').where({ code: propertyCode.toUpperCase(), status: 'ACTIVE' }).first();
-    if (!property) {
-      res.status(404).json({
-        success: false,
-        error: "That Property Code wasn't found. Please check with your landlord and try again.",
-      });
-      return;
+  verifyOtp: withBotHandler(
+    z.object({ phone: z.string().min(7), code: z.string().length(6) }),
+    async ({ phone, code }) => {
+      const valid = await otpService.verifyOTP(phone, code);
+      return { valid };
     }
+  ),
 
-    const existingUser = await db('users').where({ phone: verificationPhone }).first();
-    if (existingUser) {
-      res.status(409).json({ success: false, error: 'User already registered' });
-      return;
+  validatePropertyCode: withBotHandler(
+    null,
+    async (_body, req) => {
+      const code = String(req.params.code || '').toUpperCase();
+      if (!code) {
+        throw new Error('Property code is required');
+      }
+      const property = await db('properties').where({ code }).where({ status: 'ACTIVE' }).first();
+      return { valid: !!property };
     }
+  ),
 
-    const [newUser] = await db('users').insert({
-      name,
-      phone: verificationPhone,
-      role: 'tenant',
-    }).returning('*');
+  getHelp: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      const user = await db('users').where({ phone }).first();
+      if (!user) {
+        throw new Error('User not found');
+      }
+      return { role: user.role };
+    },
+    { parseFrom: 'params' }
+  ),
 
-    await db('tenants').insert({
-      user_id: newUser.id,
-      property_id: property.id,
-      status: 'CONNECTED',
-    });
+  registerTenant: withBotHandler(
+    z.object({
+      phone: z.string().min(7),
+      name: z.string().min(1),
+      verificationPhone: z.string().min(7),
+      propertyCode: z.string().min(3),
+    }),
+    async ({ phone, name, verificationPhone, propertyCode }) => {
+      const property = await db('properties').where({ code: propertyCode.toUpperCase() }).first();
+      if (!property) {
+        throw new Error("That Property Code wasn't found. Please check with your landlord and try again.");
+      }
 
-    const wallet = ethers.Wallet.createRandom();
-    const walletAddress = wallet.address;
-    await registerTenantWallet(verificationPhone, walletAddress, property.code);
-    await db('users').where({ id: newUser.id }).update({ wallet_address: walletAddress });
+      let user = await db('users').where({ phone: verificationPhone }).first();
+      if (!user) {
+        user = await db('users').where({ phone }).first();
+      }
 
-    await notificationService.notifyLandlord(property.id, name);
+      if (user && user.role === 'tenant' && user.name !== 'New User') {
+        throw new Error('User already registered');
+      }
 
-    const token = jwt.sign({ id: newUser.id, role: 'tenant' }, JWT_SECRET, { expiresIn: '7d' });
+      if (user) {
+        const [updatedUser] = await db('users').where({ id: user.id }).update({ name, role: 'tenant' }).returning('*');
+        user = updatedUser;
+      } else {
+        const [newUser] = await db('users').insert({ name, phone: verificationPhone, role: 'tenant' }).returning('*');
+        user = newUser;
+      }
 
-    logger.info({ userId: newUser.id, phone: verificationPhone }, 'Tenant registered');
-    res.status(201).json({
-      success: true,
-      token,
-      tenant: { id: newUser.id, name, phone: verificationPhone, wallet_address: walletAddress },
-    });
-  }),
+      await db('tenants').insert({ user_id: user.id, property_id: property.id, status: 'CONNECTED' });
 
-  registerLandlord: withBotHandler(async (req, res) => {
-    const { phone, name, verificationPhone } = z.object({
-      phone: phoneSchema,
-      name: z.string().min(1).max(100),
-      verificationPhone: phoneSchema,
-    }).parse(req.body);
+      const wallet = ethers.Wallet.createRandom();
+      const walletAddress = wallet.address;
+      registerTenantWallet(verificationPhone, walletAddress, property.code).catch(() => {});
+      await db('users').where({ id: user.id }).update({ wallet_address: walletAddress });
 
-    const existingUser = await db('users').where({ phone: verificationPhone }).first();
-    if (existingUser) {
-      res.status(409).json({ success: false, error: 'User already registered' });
-      return;
-    }
+      notificationService.notifyLandlord(property.id, name).catch(() => {});
 
-    const [newUser] = await db('users').insert({
-      name,
-      phone: verificationPhone,
-      role: 'landlord',
-    }).returning('*');
+      const token = jwt.sign({ id: user.id, role: 'tenant' }, JWT_SECRET, { expiresIn: '7d' });
 
-    const wallet = ethers.Wallet.createRandom();
-    const walletAddress = wallet.address;
-    await registerLandlordWallet(verificationPhone, walletAddress);
-    await db('users').where({ id: newUser.id }).update({ wallet_address: walletAddress });
+      return { success: true, token, tenant: { ...user, wallet_address: walletAddress } };
+    },
+    { status: 201 }
+  ),
 
-    const token = jwt.sign({ id: newUser.id, role: 'landlord' }, JWT_SECRET, { expiresIn: '7d' });
+  registerLandlord: withBotHandler(
+    z.object({
+      phone: z.string().min(7),
+      name: z.string().min(1),
+      verificationPhone: z.string().min(7),
+    }),
+    async ({ phone, name, verificationPhone }) => {
+      const existingUser = await db('users').where({ phone: verificationPhone }).first();
+      if (existingUser && existingUser.name !== 'New User') {
+        throw new Error('User already registered');
+      }
 
-    logger.info({ userId: newUser.id, phone: verificationPhone }, 'Landlord registered');
-    res.status(201).json({
-      success: true,
-      token,
-      user: { id: newUser.id, name, phone: verificationPhone, wallet_address: walletAddress },
-    });
-  }),
+      let newUser;
+      if (existingUser) {
+        [newUser] = await db('users').where({ id: existingUser.id }).update({ name, role: 'landlord' }).returning('*');
+      } else {
+        [newUser] = await db('users').insert({ name, phone, role: 'landlord' }).returning('*');
+      }
 
-  initiatePayment: withBotHandler(async (req, res) => {
-    const { phone, amountNGN, method } = z.object({
-      phone: phoneSchema,
-      amountNGN: z.number().positive(),
-      method: z.enum(['bank_transfer', 'mobile_money']),
-    }).parse(req.body);
+      const wallet = ethers.Wallet.createRandom();
+      const walletAddress = wallet.address;
+      registerLandlordWallet(verificationPhone, walletAddress).catch(() => {});
+      await db('users').where({ id: newUser.id }).update({ wallet_address: walletAddress });
 
-    const user = await db('users').where({ phone }).first();
-    if (!user || user.role !== 'tenant') {
-      res.status(404).json({ success: false, error: 'Tenant not found' });
-      return;
-    }
+      const token = jwt.sign({ id: newUser.id, role: 'landlord' }, JWT_SECRET, { expiresIn: '7d' });
 
-    const grdAmount = amountNGN * GRD_PRICE_PER_NGN;
-    const reference = `GRD-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-    const tenant = await db('tenants').where({ user_id: user.id }).first();
+      return { success: true, token, user: { ...newUser, wallet_address: walletAddress } };
+    },
+    { status: 201 }
+  ),
 
-    const [transaction] = await db('transactions').insert({
-      tenant_id: tenant?.id,
-      amount_ngn: amountNGN,
-      grd_amount: grdAmount,
-      payment_method: method,
-      payment_ref: reference,
-      status: 'PENDING'
-    }).returning('*');
+  getTenantBalance: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      const user = await db('users').where({ phone }).first();
+      if (!user || user.role !== 'tenant') {
+        throw new Error('Tenant not found');
+      }
 
-    let response: Record<string, unknown>;
-    if (method === 'bank_transfer') {
-      response = {
-        success: true,
-        paymentInstructionsMessage: `Transfer NGN${amountNGN.toLocaleString('en-NG')} to the account below. Use reference: ${reference}`,
-        reference,
-        accountNumber: '0123456789',
-        bankName: 'Wema Bank',
-        expiresAt: Date.now() + 15 * 60 * 1000,
-        grdAmount,
+      const tenant = await db('tenants')
+        .join('properties', 'tenants.property_id', 'properties.id')
+        .where({ 'tenants.user_id': user.id })
+        .select('tenants.*', 'properties.label as propertyLabel')
+        .first();
+
+      if (!tenant) {
+        throw new Error('Tenant property link not found');
+      }
+
+      const balanceGrd = await getTokenBalance(user.wallet_address || '');
+
+      const consumptionRate = parseFloat(process.env.CONSUMPTION_KWH_PER_HOUR || '0.5');
+      const hoursLeft = Math.floor(parseFloat(balanceGrd) / consumptionRate);
+
+      const lastTx = await db('transactions').where({ tenant_id: tenant.id, status: 'SUCCESSFUL' }).orderBy('created_at', 'desc').first();
+
+      const grdPrice = parseFloat(process.env.GRD_PRICE_PER_NGN || '1');
+      const balanceNGN = parseFloat(balanceGrd) / grdPrice;
+
+      return {
+        balanceGrd: parseFloat(balanceGrd),
+        balanceNGN: Math.round(balanceNGN * 100) / 100,
+        estimatedHours: hoursLeft,
+        propertyName: tenant.propertyLabel,
+        lastTopupDate: lastTx ? new Date(lastTx.created_at).toLocaleDateString('en-GB') : 'Never',
+        status: tenant.status === 'CONNECTED' ? 'Connected' : 'Disconnected',
       };
-    } else {
-      response = {
-        success: true,
-        paymentInstructionsMessage: `Send NGN${amountNGN.toLocaleString('en-NG')} via mobile money. Reference: ${reference}`,
-        reference,
-        network: 'OPay',
-        grdAmount,
-      };
-    }
+    },
+    { parseFrom: 'params' }
+  ),
 
-    logger.info({ transactionId: transaction.id, reference, amountNGN }, 'Payment initiated');
-    res.status(200).json(response);
-  }),
+  getTenantHistory: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      const user = await db('users').where({ phone }).first();
+      if (!user) {
+        throw new Error('User not found');
+      }
 
-  getTenantBalance: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.params);
+      const tenant = await db('tenants').where({ user_id: user.id }).first();
+      if (!tenant) {
+        throw new Error('Tenant record not found');
+      }
 
-    const user = await db('users').where({ phone }).first();
-    if (!user || user.role !== 'tenant') {
-      res.status(404).json({ success: false, error: 'Tenant not found' });
-      return;
-    }
+      const transactions = await db('transactions').where({ tenant_id: tenant.id }).orderBy('created_at', 'desc').limit(10);
 
-    const tenant = await db('tenants')
-      .join('properties', 'tenants.property_id', 'properties.id')
-      .where({ 'tenants.user_id': user.id })
-      .select('tenants.*', 'properties.label as propertyLabel')
-      .first();
-
-    if (!tenant) {
-      res.status(404).json({ success: false, error: 'Tenant property link not found' });
-      return;
-    }
-
-    const balanceGrd = await getTokenBalance(user.wallet_address || '');
-    const hoursLeft = Math.floor(parseFloat(balanceGrd) / CONSUMPTION_KWH_PER_HOUR);
-    const balanceNGN = parseFloat(balanceGrd) / GRD_PRICE_PER_NGN;
-
-    const lastTx = await db('transactions')
-      .where({ tenant_id: tenant.id, status: 'SUCCESSFUL' })
-      .orderBy('created_at', 'desc')
-      .first();
-
-    res.status(200).json({
-      success: true,
-      balanceGrd: parseFloat(balanceGrd),
-      balanceNGN: Math.round(balanceNGN * 100) / 100,
-      estimatedHours: hoursLeft,
-      propertyName: tenant.propertyLabel,
-      lastTopupDate: lastTx ? new Date(lastTx.created_at).toLocaleDateString('en-GB') : 'Never',
-      status: tenant.status === 'CONNECTED' ? 'Connected' : 'Disconnected'
-    });
-  }),
-
-  getTenantHistory: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.params);
-
-    const user = await db('users').where({ phone }).first();
-    if (!user) {
-      res.status(404).json({ success: false, error: 'User not found' });
-      return;
-    }
-
-    const tenant = await db('tenants').where({ user_id: user.id }).first();
-    if (!tenant) {
-      res.status(404).json({ success: false, error: 'Tenant record not found' });
-      return;
-    }
-
-    const transactions = await db('transactions')
-      .where({ tenant_id: tenant.id })
-      .orderBy('created_at', 'desc')
-      .limit(10);
-
-    res.status(200).json({
-      success: true,
-      transactions: transactions.map((tx: any) => ({
+      const formattedTransactions = transactions.map((tx: any) => ({
         date: new Date(tx.created_at).toLocaleDateString('en-GB'),
         amountNaira: Number(tx.amount_ngn),
-        grdAmount: Number(tx.grd_amount)
-      }))
-    });
-  }),
+        grdAmount: Number(tx.grd_amount),
+      }));
 
-  getTenantProperty: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.params);
-    const user = await db('users').where({ phone, role: 'tenant' }).first();
+      return { transactions: formattedTransactions };
+    },
+    { parseFrom: 'params' }
+  ),
 
-    if (!user) {
-      res.status(404).json({ success: false, error: 'Tenant not found' });
-      return;
-    }
+  getTenantProperty: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      const user = await db('users').where({ phone, role: 'tenant' }).first();
+      if (!user) {
+        throw new Error('Tenant not found');
+      }
 
-    const tenantRecord = await db('tenants')
-      .join('properties', 'tenants.property_id', 'properties.id')
-      .join('users as landlords', 'properties.landlord_id', 'landlords.id')
-      .where({ 'tenants.user_id': user.id })
-      .select(
-        'properties.label',
-        'properties.address',
-        'landlords.name as landlordName',
-        'tenants.status'
-      )
-      .first();
+      const tenantRecord = await db('tenants')
+        .join('properties', 'tenants.property_id', 'properties.id')
+        .join('users as landlords', 'properties.landlord_id', 'landlords.id')
+        .where({ 'tenants.user_id': user.id })
+        .select('properties.label', 'properties.address', 'landlords.name as landlordName', 'tenants.status')
+        .first();
 
-    if (!tenantRecord) {
-      res.status(404).json({ success: false, error: 'Property link not found' });
-      return;
-    }
+      if (!tenantRecord) {
+        throw new Error('Property link not found');
+      }
 
-    res.status(200).json({
-      success: true,
-      label: tenantRecord.label,
-      address: tenantRecord.address,
-      landlordName: tenantRecord.landlordName,
-      status: tenantRecord.status === 'CONNECTED' ? 'Connected' : 'Disconnected'
-    });
-  }),
-
-  getLandlordProperties: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.params);
-    const user = await db('users').where({ phone }).first();
-    if (!user || user.role !== 'landlord') {
-      res.status(404).json({ success: false, error: 'Landlord not found' });
-      return;
-    }
-
-    const properties = await db('properties')
-      .where({ landlord_id: user.id })
-      .select('properties.*')
-      .orderBy('created_at', 'desc');
-
-    if (!properties.length) {
-      res.status(200).json({ success: true, properties: [] });
-      return;
-    }
-
-    const tenantCounts = await db('tenants')
-      .whereIn('property_id', properties.map(p => p.id))
-      .groupBy('property_id')
-      .select('property_id')
-      .count('id as count');
-
-    const countMap = new Map<number, number>();
-    tenantCounts.forEach((row: any) => countMap.set(row.property_id, Number(row.count)));
-
-    res.status(200).json({
-      success: true,
-      properties: properties.map(p => ({
-        ...p,
-        activeTenantCount: countMap.get(p.id) || 0
-      }))
-    });
-  }),
-
-  getLandlordPropertyDetails: withBotHandler(async (req, res) => {
-    const { phone, code } = z.object({
-      phone: phoneSchema,
-      code: z.string().min(3).max(20)
-    }).parse({ ...req.params });
-
-    const user = await db('users').where({ phone }).first();
-    if (!user) {
-      res.status(404).json({ success: false, error: 'User not found' });
-      return;
-    }
-
-    const property = await db('properties').where({ landlord_id: user.id, code }).first();
-    if (!property) {
-      res.status(404).json({ success: false, error: 'Property not found' });
-      return;
-    }
-
-    const tenantCount = await db('tenants').where({ property_id: property.id }).count('id as count').first();
-
-    res.status(200).json({
-      success: true,
-      ...property,
-      activeTenantCount: Number(tenantCount?.count || 0)
-    });
-  }),
-
-  getLandlordPropertyTenants: withBotHandler(async (req, res) => {
-    const { phone, code } = z.object({
-      phone: phoneSchema,
-      code: z.string().min(3).max(20)
-    }).parse({ ...req.params });
-
-    const user = await db('users').where({ phone }).first();
-    if (!user) {
-      res.status(404).json({ success: false, error: 'User not found' });
-      return;
-    }
-
-    const property = await db('properties').where({ landlord_id: user.id, code }).first();
-    if (!property) {
-      res.status(404).json({ success: false, error: 'Property not found' });
-      return;
-    }
-
-    const tenants = await db('tenants')
-      .join('users', 'tenants.user_id', 'users.id')
-      .where({ 'tenants.property_id': property.id })
-      .select('users.name', 'users.phone', 'tenants.status');
-
-    res.status(200).json({
-      success: true,
-      property: {
-        code: property.code,
-        label: property.label,
-        flatCount: property.flat_count,
-        occupiedCount: tenants.length
-      },
-      tenants
-    });
-  }),
-
-  getLandlordEarnings: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.params);
-    const user = await db('users').where({ phone }).first();
-    if (!user) {
-      res.status(404).json({ success: false, error: 'User not found' });
-      return;
-    }
-
-    const properties = await db('properties').where({ landlord_id: user.id });
-    if (!properties.length) {
-      res.status(200).json({ success: true, total: 0, breakdown: [] });
-      return;
-    }
-
-    const propertyIds = properties.map(p => p.id);
-
-    const earnings = await db('transactions')
-      .whereIn('property_id', propertyIds)
-      .where({ status: 'SUCCESSFUL' })
-      .select('property_id')
-      .sum('amount_ngn as total')
-      .groupBy('property_id');
-
-    const shareMultiplier = LANDLORD_SHARE_BPS / 10000;
-
-    const breakdown = properties.map(p => {
-      const pEarnings = earnings.find(e => e.property_id === p.id);
       return {
-        code: p.code,
-        label: p.label,
-        amount: Math.round((Number(pEarnings?.total || 0) * shareMultiplier) * 100) / 100
+        label: tenantRecord.label,
+        address: tenantRecord.address,
+        landlordName: tenantRecord.landlordName,
+        status: tenantRecord.status === 'CONNECTED' ? 'Connected' : 'Disconnected',
       };
-    });
+    },
+    { parseFrom: 'params' }
+  ),
 
-    const total = breakdown.reduce((sum, item) => sum + item.amount, 0);
+  getLandlordProperties: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      const user = await db('users').where({ phone }).first();
+      if (!user || user.role !== 'landlord') {
+        throw new Error('Landlord not found');
+      }
 
-    res.status(200).json({ success: true, total, breakdown });
-  }),
+      const properties = await db('properties').where({ landlord_id: user.id }).select('properties.*').orderBy('created_at', 'desc');
 
-  getLandlordPropertyEarnings: withBotHandler(async (req, res) => {
-    const { phone, code } = z.object({
-      phone: phoneSchema,
-      code: z.string().min(3).max(20)
-    }).parse({ ...req.params });
+      const enhancedProperties = await Promise.all(
+        properties.map(async (p) => {
+          const tenantCount = await db('tenants').where({ property_id: p.id }).count('id as count').first();
+          return { ...p, flatCount: p.flat_count, activeTenantCount: Number(tenantCount?.count || 0) };
+        })
+      );
 
-    const user = await db('users').where({ phone }).first();
-    if (!user) {
-      res.status(404).json({ success: false, error: 'User not found' });
-      return;
-    }
+      return { properties: enhancedProperties };
+    },
+    { parseFrom: 'params' }
+  ),
 
-    const property = await db('properties').where({ landlord_id: user.id, code }).first();
-    if (!property) {
-      res.status(404).json({ success: false, error: 'Property not found' });
-      return;
-    }
+  getLandlordPropertyDetails: withBotHandler(
+    z.object({ phone: z.string().min(7), code: z.string() }),
+    async ({ phone, code }, req) => {
+      const user = await db('users').where({ phone }).first();
+      if (!user) {
+        throw new Error('User not found');
+      }
 
-    const earnings = await db('transactions')
-      .where({ property_id: property.id, status: 'SUCCESSFUL' })
-      .sum('amount_ngn as total')
-      .first();
+      const property = await db('properties').where({ landlord_id: user.id, code }).first();
+      if (!property) {
+        throw new Error('Property not found');
+      }
 
-    const shareMultiplier = LANDLORD_SHARE_BPS / 10000;
-    const amount = Math.round((Number(earnings?.total || 0) * shareMultiplier) * 100) / 100;
+      const tenantCount = await db('tenants').where({ property_id: property.id }).count('id as count').first();
 
-    res.status(200).json({ success: true, code, amount });
-  }),
+      return { ...property, flatCount: property.flat_count, activeTenantCount: Number(tenantCount?.count || 0) };
+    },
+    { parseFrom: 'params' }
+  ),
 
-  getBankDetails: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.params);
-    const user = await db('users').where({ phone }).first();
-    if (!user) {
-      res.status(404).json({ success: false, error: 'User not found' });
-      return;
-    }
+  getLandlordPropertyTenants: withBotHandler(
+    z.object({ phone: z.string().min(7), code: z.string() }),
+    async ({ phone, code }, req) => {
+      const user = await db('users').where({ phone }).first();
+      if (!user) {
+        throw new Error('User not found');
+      }
 
-    res.status(200).json({
-      success: true,
-      bankName: user.bank_name || null,
-      accountNumber: user.account_number || null
-    });
-  }),
+      const property = await db('properties').where({ landlord_id: user.id, code }).first();
+      if (!property) {
+        throw new Error('Property not found');
+      }
 
-  saveBankDetails: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.params);
-    const { bankName, accountNumber } = z.object({
-      bankName: z.string().min(2).max(100),
-      accountNumber: z.string().regex(/^\d{10,16}$/)
-    }).parse(req.body);
+      const tenants = await db('tenants')
+        .join('users', 'tenants.user_id', 'users.id')
+        .where({ 'tenants.property_id': property.id })
+        .select('users.name', 'users.phone', 'tenants.status');
 
-    const user = await db('users').where({ phone }).first();
-    if (!user) {
-      res.status(404).json({ success: false, error: 'User not found' });
-      return;
-    }
+      const formattedTenants = tenants.map(t => ({ ...t, flatNumber: '' }));
 
-    await db('users').where({ phone }).update({
-      bank_name: bankName,
-      account_number: accountNumber
-    });
+      return { tenants: formattedTenants };
+    },
+    { parseFrom: 'params' }
+  ),
 
-    res.status(200).json({ success: true });
-  }),
+  getLandlordEarnings: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      const user = await db('users').where({ phone }).first();
+      if (!user) {
+        throw new Error('User not found');
+      }
 
-  initiateWithdrawal: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.params);
-    const { amount } = z.object({ amount: z.number().positive() }).parse(req.body);
+      const properties = await db('properties').where({ landlord_id: user.id });
+      const propertyIds = properties.map(p => p.id);
 
-    const landlord = await db('users').where({ phone, role: 'landlord' }).first();
-    if (!landlord) {
-      res.status(404).json({ success: false, error: 'Landlord not found' });
-      return;
-    }
+      const earnings = await db('transactions')
+        .join('tenants', 'transactions.tenant_id', 'tenants.id')
+        .whereIn('tenants.property_id', propertyIds)
+        .where({ 'transactions.status': 'SUCCESSFUL' })
+        .select('tenants.property_id')
+        .sum('transactions.amount_ngn as total')
+        .groupBy('tenants.property_id');
 
-    if (!landlord.account_number) {
-      res.status(400).json({ success: false, error: 'Bank details missing. Save bank details first.' });
-      return;
-    }
+      const shareMultiplier = LANDLORD_SHARE_BPS / 10000;
 
-    const [withdrawal] = await db('withdrawals').insert({
-      landlord_id: landlord.id,
-      amount,
-      bank_name: landlord.bank_name,
-      account_number: landlord.account_number,
-      status: 'PENDING'
-    }).returning('*');
+      const breakdown = properties.map(p => {
+        const pEarnings = earnings.find(e => e.property_id === p.id);
+        return { code: p.code, label: p.label, amount: Math.round((Number(pEarnings?.total || 0) * shareMultiplier) * 100) / 100 };
+      });
 
-    logger.info({ withdrawalId: withdrawal.id, amount, landlordId: landlord.id }, 'Withdrawal initiated');
-    res.status(201).json({
-      success: true,
-      amount,
-      bankName: landlord.bank_name,
-      bankLast4: landlord.account_number.slice(-4)
-    });
-  }),
+      const total = breakdown.reduce((sum, item) => sum + item.amount, 0);
 
-  removeTenant: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.params);
-    const { tenantPhone } = z.object({ tenantPhone: phoneSchema }).parse(req.body);
+      return { total, breakdown };
+    },
+    { parseFrom: 'params' }
+  ),
 
-    const landlord = await db('users').where({ phone, role: 'landlord' }).first();
-    if (!landlord) {
-      res.status(404).json({ success: false, error: 'Landlord not found' });
-      return;
-    }
+  getLandlordPropertyEarnings: withBotHandler(
+    z.object({ phone: z.string().min(7), code: z.string() }),
+    async ({ phone, code }, req) => {
+      const user = await db('users').where({ phone }).first();
+      if (!user) {
+        throw new Error('User not found');
+      }
 
-    const tenantUser = await db('users').where({ phone: tenantPhone, role: 'tenant' }).first();
-    if (!tenantUser) {
-      res.status(404).json({ success: false, error: 'Tenant not found' });
-      return;
-    }
+      const property = await db('properties').where({ landlord_id: user.id, code }).first();
+      if (!property) {
+        throw new Error('Property not found');
+      }
 
-    const tenantRecord = await db('tenants')
-      .join('properties', 'tenants.property_id', 'properties.id')
-      .where({
-        'tenants.user_id': tenantUser.id,
-        'properties.landlord_id': landlord.id
-      })
-      .select('tenants.id', 'properties.label as propertyLabel')
-      .first();
+      const earnings = await db('transactions')
+        .join('tenants', 'transactions.tenant_id', 'tenants.id')
+        .where({ 'tenants.property_id': property.id, 'transactions.status': 'SUCCESSFUL' })
+        .sum('transactions.amount_ngn as total')
+        .count('transactions.id as count')
+        .first();
 
-    if (!tenantRecord) {
-      res.status(403).json({ success: false, error: 'Tenant not registered under your properties' });
-      return;
-    }
+      const shareMultiplier = LANDLORD_SHARE_BPS / 10000;
+      const amount = Math.round((Number(earnings?.total || 0) * shareMultiplier) * 100) / 100;
 
-    await db('tenants').where({ id: tenantRecord.id }).update({ status: 'DISCONNECTED' });
+      return { code, amount, purchaseCount: Number(earnings?.count || 0) };
+    },
+    { parseFrom: 'params' }
+  ),
 
-    logger.info({ tenantId: tenantUser.id, landlordId: landlord.id }, 'Tenant removed');
-    res.status(200).json({
-      success: true,
-      tenantName: tenantUser.name,
-      propertyName: tenantRecord.propertyLabel
-    });
-  }),
+  getBankDetails: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      const user = await db('users').where({ phone }).first();
+      if (!user) {
+        throw new Error('User not found');
+      }
+      return { bankName: user.bank_name || null, accountNumber: user.account_number || null };
+    },
+    { parseFrom: 'params' }
+  ),
 
-  getSession: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.params);
-    const data = await redis.get(`bot_session:${phone}`);
-    res.status(200).json({ success: true, session: data ? JSON.parse(data) : null });
-  }),
+  saveBankDetails: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      const { bankName, accountNumber } = z.object({
+        bankName: z.string(),
+        accountNumber: z.string().min(10),
+      }).parse(req.body);
 
-  updateSession: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.params);
-    const { step, data } = z.object({
-      step: z.string(),
-      data: z.record(z.string(), z.any()).optional()
-    }).parse(req.body);
+      const user = await db('users').where({ phone }).first();
+      if (!user) {
+        throw new Error('User not found');
+      }
 
-    const existingStr = await redis.get(`bot_session:${phone}`);
-    const existing = existingStr ? JSON.parse(existingStr) : { data: {} };
+      await db('users').where({ phone }).update({ bank_name: bankName, account_number: accountNumber });
 
-    const newSession = {
-      step,
-      data: { ...existing.data, ...(data || {}) }
-    };
+      return { success: true };
+    },
+    { parseFrom: 'params' }
+  ),
 
-    await redis.set(`bot_session:${phone}`, JSON.stringify(newSession), 'EX', 3600);
-    res.status(200).json({ success: true, session: newSession });
-  }),
+  initiateWithdrawal: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      const { amount } = z.object({ amount: z.number().min(0) }).parse(req.body);
 
-  clearSession: withBotHandler(async (req, res) => {
-    const { phone } = z.object({ phone: phoneSchema }).parse(req.params);
-    await redis.del(`bot_session:${phone}`);
-    res.status(200).json({ success: true });
-  }),
+      if (amount <= 0) {
+        throw new Error('Withdrawal amount must be greater than zero');
+      }
 
-  createProperty: withBotHandler(async (req, res) => {
-    const { phone, address, flatCount, label } = z.object({
-      phone: phoneSchema,
-      address: z.string().min(5).max(200),
+      const landlord = await db('users').where({ phone, role: 'landlord' }).first();
+      if (!landlord) {
+        throw new Error('Landlord not found');
+      }
+
+      if (!landlord.account_number) {
+        throw new Error('Bank details missing. Save bank details first.');
+      }
+
+      const [withdrawal] = await db('withdrawals').insert({
+        landlord_id: landlord.id,
+        amount,
+        bank_name: landlord.bank_name,
+        account_number: landlord.account_number,
+        status: 'PENDING',
+      }).returning('*');
+
+      return { success: true, amount, bankName: landlord.bank_name, bankLast4: landlord.account_number.slice(-4) };
+    },
+    { parseFrom: 'params', status: 201 }
+  ),
+
+  removeTenant: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      const { tenantPhone } = z.object({ tenantPhone: z.string().min(7) }).parse(req.body);
+
+      const landlord = await db('users').where({ phone, role: 'landlord' }).first();
+      if (!landlord) {
+        throw new Error('Landlord not found');
+      }
+
+      const tenantUser = await db('users').where({ phone: tenantPhone, role: 'tenant' }).first();
+      if (!tenantUser) {
+        throw new Error('Tenant not found');
+      }
+
+      const tenantRecord = await db('tenants')
+        .join('properties', 'tenants.property_id', 'properties.id')
+        .where({ 'tenants.user_id': tenantUser.id, 'properties.landlord_id': landlord.id })
+        .select('tenants.id', 'properties.label as propertyLabel')
+        .first();
+
+      if (!tenantRecord) {
+        throw new Error('Tenant not registered under your properties');
+      }
+
+      await db('tenants').where({ id: tenantRecord.id }).update({ status: 'DISCONNECTED' });
+
+      return { success: true, tenantName: tenantUser.name, propertyName: tenantRecord.propertyLabel };
+    },
+    { parseFrom: 'params' }
+  ),
+
+  getSession: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      const data = await redis.get(`bot_session:${phone}`);
+      return { session: data ? JSON.parse(data) : null };
+    },
+    { parseFrom: 'params' }
+  ),
+
+  updateSession: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      const { step, data } = z.object({
+        step: z.string(),
+        data: z.record(z.string(), z.any()).optional(),
+      }).parse(req.body);
+
+      const existingStr = await redis.get(`bot_session:${phone}`);
+      const existing = existingStr ? JSON.parse(existingStr) : { data: {} };
+
+      const newSession = { step, data: { ...existing.data, ...(data || {}) } };
+
+      await redis.set(`bot_session:${phone}`, JSON.stringify(newSession), 'EX', 3600);
+      return { success: true, session: newSession };
+    },
+    { parseFrom: 'params' }
+  ),
+
+  clearSession: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      await redis.del(`bot_session:${phone}`);
+      return { success: true };
+    },
+    { parseFrom: 'params' }
+  ),
+
+  createProperty: withBotHandler(
+    z.object({
+      phone: z.string().min(7),
+      address: z.string().min(5),
       flatCount: z.number().int().positive(),
-      label: z.string().min(2).max(100),
-    }).parse(req.body);
+      label: z.string().min(2),
+    }),
+    async ({ phone, address, flatCount, label }) => {
+      const landlord = await db('users').where({ phone, role: 'landlord' }).first();
+      if (!landlord) {
+        throw new Error('Landlord not found');
+      }
 
-    const landlord = await db('users').where({ phone, role: 'landlord' }).first();
-    if (!landlord) {
-      res.status(404).json({ success: false, error: 'Landlord not found' });
-      return;
-    }
+      let isUnique = false;
+      let code = '';
+      const stateWords = address.split(',').map((s: string) => s.trim()).filter(Boolean);
+      const stateAbbr = (stateWords[stateWords.length - 1] || 'LAG').replace(/\s+state$/i, '').substring(0, 3).toUpperCase();
+      while (!isUnique) {
+        const seq = String(Math.floor(Math.random() * 9000) + 1000);
+        code = `GRD-${stateAbbr}-${seq}`;
+        const existing = await db('properties').where({ code }).first();
+        if (!existing) isUnique = true;
+      }
 
-    let isUnique = false;
-    let code = '';
-    let attempts = 0;
-    while (!isUnique && attempts < 10) {
-      code = `GRD-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-      const existing = await db('properties').where({ code }).first();
-      if (!existing) isUnique = true;
-      attempts++;
-    }
+      const [property] = await db('properties').insert({
+        landlord_id: landlord.id,
+        code,
+        label,
+        address,
+        flat_count: flatCount,
+        status: 'ACTIVE',
+      }).returning('*');
 
-    if (!isUnique) {
-      res.status(500).json({ success: false, error: 'Failed to generate unique property code' });
-      return;
-    }
-
-    const [property] = await db('properties').insert({
-      landlord_id: landlord.id,
-      code,
-      label,
-      address,
-      flat_count: flatCount,
-      status: 'ACTIVE'
-    }).returning('*');
-
-    logger.info({ propertyCode: code, landlordId: landlord.id }, 'Property created');
-    res.status(201).json({
-      success: true,
-      code: property.code,
-      label: property.label
-    });
-  }),
+      return { success: true, code: property.code, label: property.label };
+    },
+    { status: 201 }
+  ),
 };

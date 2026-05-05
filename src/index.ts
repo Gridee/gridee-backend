@@ -19,7 +19,7 @@ const logger = pino({
     : undefined,
 });
 
-const requiredEnvVars = ['JWT_SECRET', 'DATABASE_URL', 'BOT_SHARED_SECRET'];
+const requiredEnvVars = ['JWT_SECRET', 'DATABASE_URL'];
 for (const key of requiredEnvVars) {
   if (!process.env[key]) {
     throw new Error(`Missing required env var: ${key}`);
