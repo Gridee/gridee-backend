@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { db } from '../db';
 import { mintTokens, distributeRevenue, getTokenBalance } from '../services/contractService';
+import { notificationService } from '../services/notificationService';
 import crypto from 'crypto';
+import { redis } from '../redis';
 
 const router = Router();
 
@@ -92,7 +94,15 @@ router.post('/webhook', async (req, res) => {
     const tenant = await db('tenants')
       .join('users', 'tenants.user_id', 'users.id')
       .where('tenants.id', transaction.tenant_id)
-      .select('users.wallet_address', 'tenants.id as tenant_id', 'tenants.property_id', 'tenants.status as tenant_status')
+      .select(
+        'users.wallet_address',
+        'users.phone',
+        'users.name',
+        'users.id as user_id',
+        'tenants.id as tenant_id',
+        'tenants.property_id',
+        'tenants.status as tenant_status'
+      )
       .first();
 
     if (!tenant) {
@@ -116,6 +126,20 @@ router.post('/webhook', async (req, res) => {
     await db('transactions').where({ id: transaction.id }).update({ status: 'SUCCESSFUL' });
 
     const newBalance = await getTokenBalance(tenant.wallet_address);
+ 
+    // Clear bot session so the user can use other commands immediately
+    try {
+      await redis.del(`gridee:session:${tenant.phone}`);
+    } catch (redisErr) {
+      console.error('[payment/webhook] failed to clear session:', redisErr);
+    }
+
+    // Notify user
+    await notificationService.sendPurchaseConfirmed(
+      { id: tenant.user_id, name: tenant.name, phone: tenant.phone },
+      transaction.grd_amount,
+      parseFloat(newBalance)
+    );
 
     res.status(200).json({
       received: true,
@@ -123,9 +147,12 @@ router.post('/webhook', async (req, res) => {
       grdAmount: transaction.grd_amount,
       newBalance: parseFloat(newBalance),
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('[api/payments/webhook] error:', error);
-    res.status(500).json({ error: 'Webhook processing failed' });
+    if (error.shortMessage) {
+      console.error('[api/payments/webhook] Blockchain Error:', error.shortMessage);
+    }
+    res.status(500).json({ error: 'Webhook processing failed', details: error.message });
   }
 });
 
