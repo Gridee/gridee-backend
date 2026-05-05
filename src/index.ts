@@ -7,13 +7,7 @@ import pinoHttp from 'pino-http';
 import { db } from './db';
 import { redis } from './redis';
 import { ethers } from 'ethers';
-import authRoutes from './routes/authRoutes';
-import propertyRoutes from './routes/propertyRoutes';
-import tenantRoutes from './routes/tenantRoutes';
-import botRoutes from './routes/botRoutes';
-import ussdRoutes from './routes/ussdRoutes';
-import landlordRoutes from './routes/landlordRoutes';
-import paymentRoutes from './routes/paymentRoutes';
+import apiRouter from './routes';
 import { startConsumptionEngine, stopConsumptionEngine } from './jobs/consumptionEngine';
 
 dotenv.config();
@@ -37,8 +31,8 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
-  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-bot-secret'],
+  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-bot-secret', 'verif-hash'],
 }));
 
 app.use(express.json({ limit: '1mb' }));
@@ -58,13 +52,7 @@ const generalLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later' },
 });
 
-app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/properties', generalLimiter, propertyRoutes);
-app.use('/api/tenants', generalLimiter, tenantRoutes);
-app.use('/api/ussd', ussdRoutes);
-app.use('/api/landlord', generalLimiter, landlordRoutes);
-app.use('/api/payments', generalLimiter, paymentRoutes);
-app.use('/bot', botRoutes);
+app.use('/api', generalLimiter, apiRouter);
 
 app.get('/health', async (req, res) => {
   const status: Record<string, string> = {};

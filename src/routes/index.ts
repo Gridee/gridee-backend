@@ -1,16 +1,12 @@
 import { Router } from 'express';
-import authRoutes from './authRoutes';
+import botRoutes from './botRoutes';
 import halRoutes from './halRoutes';
-import landlordRoutes from './landlordRoutes';
-import paymentRoutes from './paymentRoutes';
-import tenantRoutes from './tenantRoutes';
+import webhookRoutes from './webhookRoutes';
 
 const router = Router();
 
-router.use('/auth', authRoutes);
-router.use('/payments', paymentRoutes);
+router.use('/bot', botRoutes);
 router.use('/hal', halRoutes);
-router.use('/landlord', landlordRoutes);
-router.use('/tenants', tenantRoutes);
+router.use('/webhooks', webhookRoutes);
 
 export default router;

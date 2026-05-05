@@ -1,67 +1,11 @@
 import { Router } from 'express';
 import { db } from '../db';
 import { mintTokens, distributeRevenue, getTokenBalance } from '../services/contractService';
-import crypto from 'crypto';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
-router.post('/initiate', async (req, res) => {
-  try {
-    const { amountNGN, method, phone } = req.body;
-
-    if (!amountNGN || !method || !phone) {
-      res.status(400).json({ error: 'amountNGN, method, and phone are required' });
-      return;
-    }
-
-    const user = await db('users').where({ phone }).first();
-    if (!user || user.role !== 'tenant') {
-      res.status(404).json({ error: 'Tenant not found' });
-      return;
-    }
-
-    const grdPrice = parseFloat(process.env.GRD_PRICE_PER_NGN || '1');
-    const grdAmount = amountNGN * grdPrice;
-
-    const reference = `GRD-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-
-    const tenant = await db('tenants').where({ user_id: user.id }).first();
-
-    const [transaction] = await db('transactions').insert({
-      tenant_id: tenant?.id,
-      amount_ngn: amountNGN,
-      grd_amount: grdAmount,
-      payment_method: method,
-      payment_ref: reference,
-      status: 'PENDING'
-    }).returning('*');
-
-    if (method === 'bank_transfer') {
-      res.status(200).json({
-        paymentInstructionsMessage: `Transfer ₦${amountNGN.toLocaleString('en-NG')} to the account below. Use reference: ${reference}`,
-        reference,
-        accountNumber: '0123456789',
-        bankName: 'Wema Bank',
-        expiresAt: Date.now() + 15 * 60 * 1000,
-        grdAmount,
-      });
-    } else if (method === 'mobile_money') {
-      res.status(200).json({
-        paymentInstructionsMessage: `Send ₦${amountNGN.toLocaleString('en-NG')} via mobile money. Reference: ${reference}`,
-        reference,
-        network: 'OPay',
-        grdAmount,
-      });
-    } else {
-      res.status(400).json({ error: 'Unsupported payment method' });
-    }
-  } catch (error) {
-    console.error('[api/payments/initiate] error:', error);
-    res.status(500).json({ error: 'Failed to initiate payment' });
-  }
-});
-
-router.post('/webhook', async (req, res) => {
+router.post('/flutterwave', async (req, res) => {
   try {
     const webhookHash = req.headers['verif-hash'] as string;
     const expectedHash = process.env.FLUTTERWAVE_WEBHOOK_HASH;
@@ -71,7 +15,7 @@ router.post('/webhook', async (req, res) => {
       return;
     }
 
-    const { tx_ref, status, amount } = req.body;
+    const { tx_ref, status } = req.body;
 
     if (status !== 'successful') {
       res.status(200).json({ received: true });
@@ -117,6 +61,7 @@ router.post('/webhook', async (req, res) => {
 
     const newBalance = await getTokenBalance(tenant.wallet_address);
 
+    logger.info({ transactionId: transaction.id, newBalance }, 'Payment webhook processed');
     res.status(200).json({
       received: true,
       success: true,
@@ -124,7 +69,7 @@ router.post('/webhook', async (req, res) => {
       newBalance: parseFloat(newBalance),
     });
   } catch (error) {
-    console.error('[api/payments/webhook] error:', error);
+    logger.error({ err: (error as Error).message }, 'Webhook processing failed');
     res.status(500).json({ error: 'Webhook processing failed' });
   }
 });
