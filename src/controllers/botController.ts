@@ -7,6 +7,7 @@ import { otpService } from '../services/otpService';
 import { getTokenBalance, registerLandlordWallet, registerTenantWallet } from '../services/contractService';
 import { notificationService } from '../services/notificationService';
 import * as jwt from 'jsonwebtoken';
+import axios from 'axios';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'gridee_fallback_secret_key_2026';
 const LANDLORD_SHARE_BPS = parseInt(process.env.LANDLORD_SHARE_BPS || '1800', 10);
@@ -57,6 +58,7 @@ export const botController = {
   async sendOtp(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.body);
+      process.stdout.write(`\n[BACKEND] Received OTP request for ${phone}\n`);
       await otpService.sendOTP(phone);
       res.status(200).json({ sent: true });
     } catch (error: any) {
@@ -101,7 +103,14 @@ export const botController = {
         .where({ status: 'ACTIVE' })
         .first();
 
-      res.status(200).json({ valid: !!property });
+      res.status(200).json({ 
+        valid: !!property,
+        property: property ? {
+          code: property.code,
+          label: property.label,
+          address: property.address
+        } : null
+      });
     } catch (error: any) {
       console.error('[bot/properties/validate] error:', error);
       res.status(500).json({ valid: false, error: 'Validation failed' });
@@ -148,7 +157,7 @@ export const botController = {
 
       // Check if user already exists (by WhatsApp phone or verification phone)
       let user = await db('users').where({ phone: verificationPhone }).first();
-      
+
       if (!user) {
         // Look for the shell user created during onboarding
         user = await db('users').where({ phone }).first();
@@ -186,7 +195,7 @@ export const botController = {
       });
 
       // Assign custodial wallet
-      const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0');
+      const walletAddress = ethers.Wallet.createRandom().address;
       try {
         // Run blockchain call in the background without awaiting so it never blocks the demo
         registerTenantWallet(verificationPhone, walletAddress, property.code).catch((chainError: any) => {
@@ -537,9 +546,17 @@ export const botController = {
         };
       });
 
-      const total = breakdown.reduce((sum, item) => sum + item.amount, 0);
+      const totalEarned = breakdown.reduce((sum, item) => sum + item.amount, 0);
 
-      res.status(200).json({ total, breakdown });
+      const withdrawals = await db('withdrawals')
+        .where({ landlord_id: user.id })
+        .whereIn('status', ['PENDING', 'SUCCESSFUL'])
+        .sum('amount as total')
+        .first();
+      const totalWithdrawn = Number(withdrawals?.total || 0);
+      const totalAvailable = Math.max(0, Math.round((totalEarned - totalWithdrawn) * 100) / 100);
+
+      res.status(200).json({ total: totalAvailable, breakdown });
     } catch (error: any) {
       console.error('[bot/landlords/earnings] error:', error);
       res.status(500).json({ error: 'Failed to fetch earnings' });
@@ -813,6 +830,101 @@ export const botController = {
     } catch (error: any) {
       console.error('[bot/properties/create] error:', error);
       res.status(500).json({ error: 'Failed to create property' });
+    }
+  },
+  async createPaymentIntent(req: Request, res: Response): Promise<void> {
+    try {
+      const { tenantPhone, amountNaira, paymentMethod, propertyCode } = z.object({
+        tenantPhone: z.string().min(7),
+        amountNaira: z.number().positive(),
+        paymentMethod: z.enum(['bank_transfer', 'mobile_money', 'crypto']),
+        propertyCode: z.string().optional(),
+      }).parse(req.body);
+
+      const user = await db('users').where({ phone: tenantPhone }).first();
+      if (!user || user.role !== 'tenant') {
+        res.status(404).json({ error: 'Tenant not found' });
+        return;
+      }
+
+      // Sync property if provided
+      if (propertyCode) {
+        const property = await db('properties').where({ code: propertyCode.toUpperCase() }).first();
+        if (property) {
+          await db('tenants')
+            .where({ user_id: user.id })
+            .update({ property_id: property.id });
+        }
+      }
+
+      const grdPrice = parseFloat(process.env.GRD_PRICE_PER_NGN || '1');
+      const grdAmount = amountNaira * grdPrice;
+      const reference = `GRD-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+      const tenant = await db('tenants').where({ user_id: user.id }).first();
+
+      const [transaction] = await db('transactions').insert({
+        tenant_id: tenant?.id,
+        amount_ngn: amountNaira,
+        grd_amount: grdAmount,
+        payment_method: paymentMethod,
+        payment_ref: reference,
+        status: 'PENDING'
+      }).returning('*');
+
+      // Mocked payment instructions based on method
+      let paymentData: any = { reference, amountNaira, grdAmount };
+
+      if (paymentMethod === 'bank_transfer') {
+        paymentData = {
+          ...paymentData,
+          accountNumber: '0123456789',
+          bankName: 'Wema Bank',
+          accountName: 'Gridee Energy'
+        };
+      } else if (paymentMethod === 'mobile_money') {
+        paymentData = {
+          ...paymentData,
+          network: 'OPay'
+        };
+      } else {
+        paymentData = {
+          ...paymentData,
+          walletAddress: '0x1234567890abcdef1234567890abcdef12345678'
+        };
+      }
+
+      res.status(200).json({ payment: paymentData });
+
+      // AUTO-CONFIRM for Demo Mode
+      if (process.env.MOCK_BLOCKCHAIN === 'true') {
+        const webhookUrl = `http://127.0.0.1:${process.env.PORT || 3000}/api/payments/webhook`;
+        const webhookHash = process.env.FLUTTERWAVE_WEBHOOK_HASH || 'gridee_webhook_secret_2026';
+
+        console.log(`\x1b[33m[DEMO MODE]\x1b[0m Scheduling auto-confirm for ${reference} in 15 seconds...`);
+
+        setTimeout(async () => {
+          try {
+            await axios.post(webhookUrl, {
+              tx_ref: reference,
+              status: 'successful',
+              amount: amountNaira
+            }, {
+              headers: { 'verif-hash': webhookHash }
+            });
+            console.log(`\x1b[32m[DEMO MODE]\x1b[0m Auto-confirmed ${reference}`);
+          } catch (err: any) {
+            console.error(`\x1b[31m[DEMO MODE]\x1b[0m Auto-confirm failed for ${reference}:`, err.message);
+          }
+        }, 15000);
+      }
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ errors: error.issues });
+        return;
+      }
+      console.error('[bot/payments/intents] error:', error);
+      res.status(500).json({ error: 'Failed to create payment intent' });
     }
   },
 };

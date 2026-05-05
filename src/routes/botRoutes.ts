@@ -14,6 +14,8 @@ router.post('/otp/verify', botController.verifyOtp);
 router.post('/tenants/register', botController.registerTenant);
 router.post('/landlords/register', botController.registerLandlord);
 
+router.post('/payments/intents', botController.createPaymentIntent);
+
 router.get('/properties/:code/validate', botController.validatePropertyCode);
 router.post('/properties', botController.createProperty);
 
