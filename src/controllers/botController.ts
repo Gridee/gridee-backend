@@ -6,6 +6,7 @@ import { db } from '../db';
 import { otpService } from '../services/otpService';
 import { getTokenBalance, registerLandlordWallet, registerTenantWallet } from '../services/contractService';
 import { notificationService } from '../services/notificationService';
+import { paymentService } from '../services/paymentService';
 import * as jwt from 'jsonwebtoken';
 import { withBotHandler } from '../utils/botHandler';
 
@@ -150,6 +151,30 @@ export const botController = {
       return { success: true, token, user: { ...newUser, wallet_address: walletAddress } };
     },
     { status: 201 }
+  ),
+
+  initiatePayment: withBotHandler(
+    z.object({ phone: z.string().min(7) }),
+    async ({ phone }, req) => {
+      const { amountNGN, method } = z.object({
+        amountNGN: z.number().positive(),
+        method: z.enum(['bank_transfer', 'mobile_money', 'crypto']),
+      }).parse(req.body);
+
+      const user = await db('users').where({ phone }).first();
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      const result = await paymentService.initiatePayment({
+        tenantUserId: user.id,
+        amountNGN,
+        method,
+      });
+
+      return result;
+    },
+    { parseFrom: 'params' }
   ),
 
   getTenantBalance: withBotHandler(
