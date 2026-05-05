@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { db } from '../db';
 import { mintTokens, distributeRevenue, getTokenBalance } from '../services/contractService';
+import { notificationService } from '../services/notificationService';
+import { redis } from '../redis';
 import { logger } from '../lib/logger';
 
 const router = Router();
@@ -36,7 +38,15 @@ router.post('/flutterwave', async (req, res) => {
     const tenant = await db('tenants')
       .join('users', 'tenants.user_id', 'users.id')
       .where('tenants.id', transaction.tenant_id)
-      .select('users.wallet_address', 'tenants.id as tenant_id', 'tenants.property_id', 'tenants.status as tenant_status')
+      .select(
+        'users.wallet_address',
+        'users.phone',
+        'users.name',
+        'users.id as user_id',
+        'tenants.id as tenant_id',
+        'tenants.property_id',
+        'tenants.status as tenant_status'
+      )
       .first();
 
     if (!tenant) {
@@ -60,6 +70,20 @@ router.post('/flutterwave', async (req, res) => {
     await db('transactions').where({ id: transaction.id }).update({ status: 'SUCCESSFUL' });
 
     const newBalance = await getTokenBalance(tenant.wallet_address);
+
+    // Clear bot session so the user can use other commands immediately
+    try {
+      await redis.del(`gridee:session:${tenant.phone}`);
+    } catch (redisErr) {
+      logger.error({ err: redisErr }, 'Failed to clear session after webhook');
+    }
+
+    // Notify user
+    await notificationService.sendPurchaseConfirmed(
+      { id: tenant.user_id, name: tenant.name, phone: tenant.phone },
+      transaction.grd_amount,
+      parseFloat(newBalance)
+    );
 
     logger.info({ transactionId: transaction.id, newBalance }, 'Payment webhook processed');
     res.status(200).json({

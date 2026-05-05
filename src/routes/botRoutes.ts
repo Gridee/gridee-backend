@@ -20,6 +20,7 @@ router.post('/landlords/register', botController.registerLandlord);
 
 // Payments
 router.post('/payments/initiate', botController.initiatePayment);
+router.post('/payments/intents', botController.createPaymentIntent);
 
 // Properties
 router.get('/properties/:code/validate', botController.validatePropertyCode);

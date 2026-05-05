@@ -1,4 +1,5 @@
 import { ethers, Contract, TransactionReceipt } from "ethers";
+import { db } from "../db";
 
 interface GrideeTokenContract {
     mint(to: string, amount: bigint): Promise<ethers.TransactionResponse>;
@@ -57,10 +58,12 @@ interface RevenueDistributorContract {
     pendingWithdrawals(landlord: string): Promise<bigint>;
 }
 
+const MOCK_BLOCKCHAIN = process.env.MOCK_BLOCKCHAIN === 'true';
+
 function getEnv(key: string): string {
     const value = process.env[key];
-    if (!value) throw new Error(`Missing required env var: ${key}`);
-    return value;
+    if (!value && !MOCK_BLOCKCHAIN) throw new Error(`Missing required env var: ${key}`);
+    return value || '';
 }
 
 const provider = new ethers.JsonRpcProvider(getEnv("CONTRACT_RPC_URL"));
@@ -137,6 +140,10 @@ const revenueDistributor = new Contract(
 ) as unknown as RevenueDistributorContract;
 
 export async function mintTokens(to: string, amount: string): Promise<TransactionReceipt> {
+    if (MOCK_BLOCKCHAIN) {
+        console.log(`\x1b[33m[MOCK BLOCKCHAIN]\x1b[0m Minting ${amount} GRD to ${to}`);
+        return { hash: '0x' + '0'.repeat(64), blockNumber: 123456 } as any;
+    }
     const tx = await grideeToken.mint(to, ethers.parseUnits(amount, 18));
     const receipt = await tx.wait();
     if (!receipt) throw new Error("Mint transaction failed");
@@ -238,11 +245,26 @@ export async function updateProperty(
 }
 
 export async function getTokenBalance(address: string): Promise<string> {
+    if (MOCK_BLOCKCHAIN) {
+        const user = await db('users').where({ wallet_address: address }).first();
+        if (!user) return "0.0";
+        const tenant = await db('tenants').where({ user_id: user.id }).first();
+        if (!tenant) return "0.0";
+
+        const totalPurchased = await db('transactions')
+            .where({ tenant_id: tenant.id, status: 'SUCCESSFUL' })
+            .sum('grd_amount as total')
+            .first();
+
+        const balance = Number(totalPurchased?.total || 0);
+        return balance.toString();
+    }
     const balance = await grideeToken.balanceOf(address);
     return ethers.formatUnits(balance, 18);
 }
 
 export async function getEnergyBalance(address: string): Promise<string> {
+    if (MOCK_BLOCKCHAIN) return "50.0";
     const balance = await energyLedger.getBalance(address);
     return ethers.formatUnits(balance, 18);
 }
@@ -277,6 +299,10 @@ export async function distributeRevenue(
     landlordWallet: string,
     totalAmount: string
 ): Promise<TransactionReceipt> {
+    if (MOCK_BLOCKCHAIN) {
+        console.log(`\x1b[33m[MOCK BLOCKCHAIN]\x1b[0m Distributing ${totalAmount} GRD for ${propertyCode} to ${landlordWallet}`);
+        return { hash: '0x' + '0'.repeat(64), blockNumber: 123456 } as any;
+    }
     const propertyCodeHash = ethers.id(propertyCode);
     const tx = await revenueDistributor.distributeRevenue(
         propertyCodeHash,

@@ -39,6 +39,7 @@ export const botController = {
   sendOtp: withBotHandler(
     z.object({ phone: z.string().min(7) }),
     async ({ phone }) => {
+      process.stdout.write(`\n[BACKEND] Received OTP request for ${phone}\n`);
       await otpService.sendOTP(phone);
       return { sent: true };
     }
@@ -60,7 +61,7 @@ export const botController = {
         throw new Error('Property code is required');
       }
       const property = await db('properties').where({ code }).where({ status: 'ACTIVE' }).first();
-      return { valid: !!property };
+      return { valid: !!property, property: property ? { code: property.code, label: property.label, address: property.address } : null };
     }
   ),
 
@@ -110,7 +111,9 @@ export const botController = {
 
       const wallet = ethers.Wallet.createRandom();
       const walletAddress = wallet.address;
-      registerTenantWallet(verificationPhone, walletAddress, property.code).catch(() => {});
+      registerTenantWallet(verificationPhone, walletAddress, property.code).catch((chainError: any) => {
+        console.error('[bot/tenants/register] background registerTenantWallet failed:', chainError);
+      });
       await db('users').where({ id: user.id }).update({ wallet_address: walletAddress });
 
       notificationService.notifyLandlord(property.id, name).catch(() => {});
@@ -175,6 +178,56 @@ export const botController = {
       return result;
     },
     { parseFrom: 'params' }
+  ),
+
+  createPaymentIntent: withBotHandler(
+    z.object({
+      tenantPhone: z.string().min(7),
+      amountNaira: z.number().positive(),
+      paymentMethod: z.enum(['bank_transfer', 'mobile_money', 'crypto']),
+      propertyCode: z.string().optional(),
+    }),
+    async ({ tenantPhone, amountNaira, paymentMethod, propertyCode }) => {
+      const user = await db('users').where({ phone: tenantPhone }).first();
+      if (!user || user.role !== 'tenant') {
+        throw new Error('Tenant not found');
+      }
+
+      if (propertyCode) {
+        const property = await db('properties').where({ code: propertyCode.toUpperCase() }).first();
+        if (property) {
+          await db('tenants').where({ user_id: user.id }).update({ property_id: property.id });
+        }
+      }
+
+      const grdPrice = parseFloat(process.env.GRD_PRICE_PER_NGN || '1');
+      const grdAmount = amountNaira * grdPrice;
+      const reference = `GRD-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+      const tenant = await db('tenants').where({ user_id: user.id }).first();
+
+      const [transaction] = await db('transactions').insert({
+        tenant_id: tenant?.id,
+        amount_ngn: amountNaira,
+        grd_amount: grdAmount,
+        payment_method: paymentMethod,
+        payment_ref: reference,
+        status: 'PENDING',
+      }).returning('*');
+
+      let paymentData: any = { reference, amountNaira, grdAmount };
+
+      if (paymentMethod === 'bank_transfer') {
+        paymentData = { ...paymentData, accountNumber: '0123456789', bankName: 'Wema Bank', accountName: 'Gridee Energy' };
+      } else if (paymentMethod === 'mobile_money') {
+        paymentData = { ...paymentData, network: 'OPay' };
+      } else {
+        paymentData = { ...paymentData, walletAddress: '0x1234567890abcdef1234567890abcdef12345678' };
+      }
+
+      return { payment: paymentData };
+    },
+    { status: 200 }
   ),
 
   getTenantBalance: withBotHandler(
@@ -365,9 +418,17 @@ export const botController = {
         return { code: p.code, label: p.label, amount: Math.round((Number(pEarnings?.total || 0) * shareMultiplier) * 100) / 100 };
       });
 
-      const total = breakdown.reduce((sum, item) => sum + item.amount, 0);
+      const totalEarned = breakdown.reduce((sum, item) => sum + item.amount, 0);
 
-      return { total, breakdown };
+      const withdrawals = await db('withdrawals')
+        .where({ landlord_id: user.id })
+        .whereIn('status', ['PENDING', 'SUCCESSFUL'])
+        .sum('amount as total')
+        .first();
+      const totalWithdrawn = Number(withdrawals?.total || 0);
+      const totalAvailable = Math.max(0, Math.round((totalEarned - totalWithdrawn) * 100) / 100);
+
+      return { total: totalAvailable, breakdown };
     },
     { parseFrom: 'params' }
   ),
