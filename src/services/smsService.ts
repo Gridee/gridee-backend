@@ -11,8 +11,8 @@ export async function sendSMS(phone: string, message: string): Promise<void> {
   };
 
   try {
-    const response = await axios.post(`${process.env.TERMII_BASE_URL}/api/sms/send`, data);
-    console.log('Termii SMS sent successfully:', response.data);
+    await axios.post(`${process.env.TERMII_BASE_URL}/api/sms/send`, data);
+    process.stdout.write(`\n[SMS SENT] To: ${phone}\n\n`);
   } catch (error: any) {
     console.error('Termii SMS delivery failed:', error.response?.data || error.message);
     throw new Error('SMS delivery failed');
