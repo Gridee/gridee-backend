@@ -8,11 +8,17 @@ const envConfig = knexConfig[env as keyof typeof knexConfig] || knexConfig.devel
 const db = knex({
   ...envConfig,
   pool: {
-    min: 2,
+    // Keep min at 0 for cloud poolers to avoid stale idle sockets.
+    min: 0,
     max: 10,
     acquireTimeoutMillis: 30000,
     createTimeoutMillis: 30000,
-    idleTimeoutMillis: 30000,
+    idleTimeoutMillis: 10000,
+    reapIntervalMillis: 1000,
+    createRetryIntervalMillis: 200,
+    afterCreate: (conn: any, done: (err: Error | null, connection?: any) => void) => {
+      conn.query('SELECT 1', (err: Error | null) => done(err, conn));
+    },
   },
 });
 

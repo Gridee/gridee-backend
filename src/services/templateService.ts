@@ -688,14 +688,14 @@ export function balanceView(
  * @param transactions - List of recent transactions.
  */
 export function historyView(
-  transactions: Array<{ date: string; amountNaira: number; grdAmount: number }>
+  transactions: Array<{ date: string; usdcAmount: number; grdAmount: number }>
 ): string {
   if (transactions.length === 0) {
     return "📜 *Transaction History*\n\nYou haven't made any purchases yet.";
   }
 
   const lines = transactions.map(
-    (tx) => `• ${tx.date} — ₦${tx.amountNaira.toLocaleString("en-NG")} — +${tx.grdAmount} GRD`
+    (tx) => `• ${tx.date} — $${tx.usdcAmount.toLocaleString("en-US")} — +${tx.grdAmount} GRD`
   );
 
   return `Recent transactions:\n\n${lines.join("\n")}`;
@@ -731,14 +731,14 @@ export function ussdBalance(
  * @param transactions - List of recent transactions (max 5).
  */
 export function ussdHistory(
-  transactions: Array<{ date: string; amountNaira: number; grdAmount: number }>
+  transactions: Array<{ date: string; usdcAmount: number; grdAmount: number }>
 ): string {
   if (transactions.length === 0) {
     return "No transactions found. Type BUY to start.";
   }
 
   const lines = transactions.slice(0, 5).map(
-    (tx, i) => `${i + 1}. ₦${tx.amountNaira} → ${tx.grdAmount}GRD (${tx.date})`
+    (tx, i) => `${i + 1}. $${tx.usdcAmount} → ${tx.grdAmount}GRD (${tx.date})`
   );
 
   return lines.join("\n");

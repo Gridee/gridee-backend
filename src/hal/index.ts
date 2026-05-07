@@ -2,7 +2,6 @@ import { db } from '../db';
 import {
   getEnergyBalance,
   deductEnergyTokens,
-  mintEnergyTokens,
   setCutOff as setCutOffOnChain,
   isCutOff,
   getTokenBalance,

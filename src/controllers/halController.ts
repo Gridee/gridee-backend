@@ -6,11 +6,13 @@ const mockConsumeSchema = z.object({
   tenantId: z.number().int().positive(),
   kwhAmount: z.number().positive()
 });
+const isDevMode = (): boolean =>
+  String(process.env.IS_DEV || '').trim().toLowerCase() === 'true';
 
 export const halController = {
   async mockConsume(req: Request, res: Response): Promise<void> {
     try {
-      if (process.env.IS_DEV !== 'true') {
+      if (!isDevMode()) {
         res.status(403).json({ error: 'This endpoint is only available in development' });
         return;
       }
@@ -41,7 +43,7 @@ export const halController = {
 
   async forceCutOff(req: Request, res: Response): Promise<void> {
     try {
-      if (process.env.IS_DEV !== 'true') {
+      if (!isDevMode()) {
         res.status(403).json({ error: 'This endpoint is only available in development' });
         return;
       }
@@ -59,7 +61,7 @@ export const halController = {
 
   async forceReconnect(req: Request, res: Response): Promise<void> {
     try {
-      if (process.env.IS_DEV !== 'true') {
+      if (!isDevMode()) {
         res.status(403).json({ error: 'This endpoint is only available in development' });
         return;
       }

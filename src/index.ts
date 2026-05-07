@@ -7,13 +7,7 @@ import pinoHttp from 'pino-http';
 import { db } from './db';
 import { redis } from './redis';
 import { ethers } from 'ethers';
-import authRoutes from './routes/authRoutes';
-import propertyRoutes from './routes/propertyRoutes';
-import tenantRoutes from './routes/tenantRoutes';
 import botRoutes from './routes/botRoutes';
-import ussdRoutes from './routes/ussdRoutes';
-import landlordRoutes from './routes/landlordRoutes';
-import paymentRoutes from './routes/paymentRoutes';
 import halRoutes from './routes/halRoutes';
 import { startConsumptionEngine, stopConsumptionEngine } from './jobs/consumptionEngine';
 
@@ -35,11 +29,12 @@ for (const key of requiredEnvVars) {
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
+const IS_DEV_MODE = String(process.env.IS_DEV || '').trim().toLowerCase() === 'true';
 
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
   methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-bot-secret'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-bot-secret', 'x-internal-secret'],
 }));
 
 app.use(express.json({ limit: '1mb' }));
@@ -59,17 +54,11 @@ const generalLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later' },
 });
 
-app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/properties', generalLimiter, propertyRoutes);
-app.use('/api/tenants', generalLimiter, tenantRoutes);
-app.use('/api/ussd', ussdRoutes);
-app.use('/api/landlord', generalLimiter, landlordRoutes);
-app.use('/api/payments', generalLimiter, paymentRoutes);
 app.use('/api/hal', generalLimiter, halRoutes);
-app.use('/bot', botRoutes);
+app.use('/bot', generalLimiter, botRoutes);
 
 app.get('/dev/meter-sim', (_req, res) => {
-  if (process.env.IS_DEV !== 'true') {
+  if (!IS_DEV_MODE) {
     res.status(403).send('Only available when IS_DEV=true');
     return;
   }

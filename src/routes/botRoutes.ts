@@ -9,8 +9,6 @@ router.use(requireBotSecret);
 router.post('/users/resolve', botController.resolveUser);
 router.patch('/users/role', botController.setUserRole);
 
-router.post('/otp/send', botController.sendOtp);
-router.post('/otp/verify', botController.verifyOtp);
 router.post('/tenants/register', botController.registerTenant);
 router.post('/landlords/register', botController.registerLandlord);
 
@@ -19,6 +17,9 @@ router.post('/properties', botController.createProperty);
 
 router.get('/tenants/:phone/balance', botController.getTenantBalance);
 router.get('/tenants/:phone/history', botController.getTenantHistory);
+router.post('/tenants/:phone/fund', botController.fundWallet);
+router.post('/tenants/:phone/deposit', botController.depositTokens);
+router.post('/tenants/:phone/buy', botController.buyTokens);
 
 router.get('/landlords/:phone/properties', botController.getLandlordProperties);
 router.get('/landlords/:phone/properties/:code', botController.getLandlordPropertyDetails);
@@ -31,6 +32,7 @@ router.post('/landlords/:phone/withdrawals', botController.initiateWithdrawal);
 
 router.get('/users/:phone/help', botController.getHelp);
 router.get('/tenants/:phone/property', botController.getTenantProperty);
+router.get('/platform/stats', botController.getPlatformStats);
 
 router.post('/landlords/:phone/remove-tenant', botController.removeTenant);
 

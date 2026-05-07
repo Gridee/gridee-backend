@@ -1,15 +1,16 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
-import { ethers } from 'ethers';
 import { redis } from '../redis';
 import { db } from '../db';
-import { otpService } from '../services/otpService';
-import { getTokenBalance, registerLandlordWallet, registerTenantWallet } from '../services/contractService';
+import { contractService, getTokenBalance } from '../services/contractService';
+import { PrivyWalletError, privyService } from '../services/privyService';
 import { notificationService } from '../services/notificationService';
+import { TRANSACTION_STATUS } from '../constants/transactionStatus';
 import * as jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'gridee_fallback_secret_key_2026';
-const LANDLORD_SHARE_BPS = parseInt(process.env.LANDLORD_SHARE_BPS || '1800', 10);
+const LANDLORD_SHARE_BPS = parseInt(process.env.LANDLORD_SHARE_BPS || '8000', 10);
+const PLATFORM_FEE_PERCENT = parseInt(process.env.PLATFORM_FEE_PERCENT || '10', 10);
+const OPS_FEE_PERCENT = parseInt(process.env.OPS_FEE_PERCENT || '10', 10);
 
 export const botController = {
 
@@ -54,40 +55,6 @@ export const botController = {
     }
   },
 
-  async sendOtp(req: Request, res: Response): Promise<void> {
-    try {
-      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.body);
-      await otpService.sendOTP(phone);
-      res.status(200).json({ sent: true });
-    } catch (error: any) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({ errors: error.issues });
-        return;
-      }
-      console.error('[bot/otp/send] error:', error);
-      res.status(500).json({ error: 'Failed to send OTP' });
-    }
-  },
-
-  async verifyOtp(req: Request, res: Response): Promise<void> {
-    try {
-      const { phone, code } = z.object({
-        phone: z.string().min(7),
-        code: z.string().length(6),
-      }).parse(req.body);
-
-      const valid = await otpService.verifyOTP(phone, code);
-      res.status(200).json({ valid });
-    } catch (error: any) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({ errors: error.issues });
-        return;
-      }
-      console.error('[bot/otp/verify] error:', error);
-      res.status(500).json({ error: 'OTP verification failed' });
-    }
-  },
-
   async validatePropertyCode(req: Request, res: Response): Promise<void> {
     try {
       const code = String(req.params.code || '').toUpperCase();
@@ -126,11 +93,13 @@ export const botController = {
   },
 
   async registerTenant(req: Request, res: Response): Promise<void> {
+    let createdUserId: number | null = null;
+    let createdTenantId: number | null = null;
+
     try {
-      const { phone, name, verificationPhone, propertyCode } = z.object({
+      const { phone, name, propertyCode } = z.object({
         phone: z.string().min(7),
         name: z.string().min(1),
-        verificationPhone: z.string().min(7),
         propertyCode: z.string().min(3),
       }).parse(req.body);
 
@@ -141,59 +110,57 @@ export const botController = {
       if (!property) {
         res.status(404).json({
           success: false,
-          error: "That Property Code wasn't found. Please check with your landlord and try again.",
+          error: "That Property Code wasn't found.",
         });
         return;
       }
 
-      // Check if user already exists (by WhatsApp phone or verification phone)
-      let user = await db('users').where({ phone: verificationPhone }).first();
-      
-      if (!user) {
-        // Look for the shell user created during onboarding
-        user = await db('users').where({ phone }).first();
-      }
+      let user = await db('users').where({ phone }).first();
 
       if (user && user.role === 'tenant' && user.name !== 'New User') {
-        res.status(409).json({ success: false, error: 'User already registered' });
+        res.status(200).json({ success: true, message: 'User already registered', user });
         return;
       }
 
       if (user) {
-        // Update existing shell user or user found by verification phone
         const [updatedUser] = await db('users')
           .where({ id: user.id })
-          .update({
-            name,
-            role: 'tenant',
-          })
+          .update({ name, role: 'tenant' })
           .returning('*');
         user = updatedUser;
       } else {
-        // Create new user
         const [newUser] = await db('users').insert({
           name,
-          phone: verificationPhone,
+          phone,
           role: 'tenant',
         }).returning('*');
         user = newUser;
+        createdUserId = Number(newUser.id);
       }
 
-      await db('tenants').insert({
+      const [tenantRow] = await db('tenants').insert({
         user_id: user.id,
         property_id: property.id,
         status: 'CONNECTED',
-      });
+      }).returning('id');
+      createdTenantId = Number(tenantRow?.id);
 
-      // Assign custodial wallet
-      const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0');
+      const { address: walletAddress, walletId } = await privyService.createEmbeddedWallet(user.id);
+      
+      // Update DB with wallet address and wallet ID
+      await db('users').where({ id: user.id }).update({ 
+        wallet_address: walletAddress,
+        privy_user_id: walletId 
+      });
+      user.wallet_address = walletAddress;
+      user.privy_user_id = walletId;
+
+      // Register tenant on-chain in PropertyRegistry
       try {
-        // Run blockchain call in the background without awaiting so it never blocks the demo
-        registerTenantWallet(verificationPhone, walletAddress, property.code).catch((chainError: any) => {
-          console.error('[bot/tenants/register] background registerTenantWallet failed:', chainError);
-        });
-      } catch (e) { }
-      await db('users').where({ id: user.id }).update({ wallet_address: walletAddress });
+        await contractService.registerTenant(propertyCode.toUpperCase(), walletAddress);
+      } catch (onChainError) {
+        console.error('[bot/tenants/register] on-chain registration failed:', onChainError);
+      }
 
       // Notify landlord
       try {
@@ -214,21 +181,41 @@ export const botController = {
         res.status(400).json({ success: false, errors: error.issues });
         return;
       }
+      if (createdTenantId) {
+        try {
+          await db('tenants').where({ id: createdTenantId }).del();
+        } catch (cleanupError) {
+          console.error('[bot/tenants/register] tenant cleanup failed:', cleanupError);
+        }
+      }
+      if (createdUserId) {
+        try {
+          await db('users').where({ id: createdUserId }).del();
+        } catch (cleanupError) {
+          console.error('[bot/tenants/register] user cleanup failed:', cleanupError);
+        }
+      }
+      if (error instanceof PrivyWalletError) {
+        console.error('[bot/tenants/register] privy error:', error.message);
+        res.status(502).json({ success: false, error: 'Wallet provisioning failed. Please try again shortly.' });
+        return;
+      }
       res.status(500).json({ success: false, error: 'Registration failed' });
     }
   },
 
   async registerLandlord(req: Request, res: Response): Promise<void> {
+    let createdUserId: number | null = null;
+
     try {
-      const { phone, name, verificationPhone } = z.object({
+      const { phone, name } = z.object({
         phone: z.string().min(7),
         name: z.string().min(1),
-        verificationPhone: z.string().min(7),
       }).parse(req.body);
 
-      const existingUser = await db('users').where({ phone: verificationPhone }).first();
+      const existingUser = await db('users').where({ phone }).first();
       if (existingUser && existingUser.name !== 'New User') {
-        res.status(409).json({ success: false, error: 'User already registered' });
+        res.status(200).json({ success: true, message: 'User already registered', user: existingUser });
         return;
       }
 
@@ -236,28 +223,26 @@ export const botController = {
       if (existingUser) {
         [newUser] = await db('users')
           .where({ id: existingUser.id })
-          .update({
-            name,
-            role: 'landlord',
-          })
+          .update({ name, role: 'landlord' })
           .returning('*');
       } else {
         [newUser] = await db('users').insert({
           name,
-          phone: phone,
-          role: 'landlord',
+          phone,
+          role: 'landlord'
         }).returning('*');
+        createdUserId = Number(newUser.id);
       }
 
-      // Assign custodial wallet
-      const walletAddress = '0x' + Math.random().toString(16).slice(2, 42).padEnd(40, '0');
-      try {
-        // Run blockchain call in the background without awaiting so it never blocks the demo
-        registerLandlordWallet(verificationPhone, walletAddress).catch((chainError: any) => {
-          console.error('[bot/landlords/register] background registerLandlordWallet failed:', chainError);
-        });
-      } catch (e) { }
-      await db('users').where({ id: newUser.id }).update({ wallet_address: walletAddress });
+      const { address: walletAddress, walletId } = await privyService.createEmbeddedWallet(newUser.id);
+      
+      // Update DB with wallet address and wallet ID
+      await db('users').where({ id: newUser.id }).update({ 
+        wallet_address: walletAddress,
+        privy_user_id: walletId
+      });
+      newUser.wallet_address = walletAddress;
+      newUser.privy_user_id = walletId;
 
       const token = jwt.sign({ id: newUser.id, role: 'landlord' }, JWT_SECRET, { expiresIn: '7d' });
 
@@ -269,6 +254,18 @@ export const botController = {
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         res.status(400).json({ success: false, errors: error.issues });
+        return;
+      }
+      if (createdUserId) {
+        try {
+          await db('users').where({ id: createdUserId }).del();
+        } catch (cleanupError) {
+          console.error('[bot/landlords/register] user cleanup failed:', cleanupError);
+        }
+      }
+      if (error instanceof PrivyWalletError) {
+        console.error('[bot/landlords/register] privy error:', error.message);
+        res.status(502).json({ success: false, error: 'Wallet provisioning failed. Please try again shortly.' });
         return;
       }
       console.error('[bot/landlords/register] error:', error);
@@ -297,23 +294,35 @@ export const botController = {
         return;
       }
 
-      const balanceGrd = await getTokenBalance(user.wallet_address || '');
+      if (!user.wallet_address) {
+        res.status(400).json({ error: 'Tenant wallet not provisioned. Please contact support.' });
+        return;
+      }
+
+      const balanceGrd = await getTokenBalance(user.wallet_address);
+      const lockedUsdc = await contractService.getTenantUsdcBalance(user.wallet_address);
+      const currentUsdc = await contractService.getUsdcBalance(user.wallet_address);
 
       // Calculate hours remaining (MVP: use fixed rate from .env)
       const consumptionRate = parseFloat(process.env.CONSUMPTION_KWH_PER_HOUR || '0.5');
       const hoursLeft = Math.floor(parseFloat(balanceGrd) / consumptionRate);
 
       const lastTx = await db('transactions')
-        .where({ tenant_id: tenant.id, status: 'SUCCESSFUL' })
+        .where({ tenant_id: tenant.id, status: TRANSACTION_STATUS.COMPLETED })
         .orderBy('created_at', 'desc')
         .first();
 
-      const grdPrice = parseFloat(process.env.GRD_PRICE_PER_NGN || '1');
-      const balanceNGN = parseFloat(balanceGrd) / grdPrice;
+      const grdPrice = parseFloat(process.env.GRD_PRICE_PER_USDC || '1');
+      const balanceUsdcEquivalent = parseFloat(balanceGrd) / grdPrice;
+      const bps = parseFloat(process.env.LANDLORD_SHARE_BPS || '10000');
 
       res.status(200).json({
         balanceGrd: parseFloat(balanceGrd),
-        balanceNGN: Math.round(balanceNGN * 100) / 100,
+        balanceUSDC: Number(currentUsdc),
+        lockedUsdc: Number(lockedUsdc),
+        balanceUsdcEquivalent: Math.round(balanceUsdcEquivalent * 100) / 100,
+        earningsGross: Math.round(balanceUsdcEquivalent * 100) / 100,
+        earningsNet: Math.round((balanceUsdcEquivalent * (bps / 10000)) * 100) / 100,
         estimatedHours: hoursLeft,
         propertyName: tenant.propertyLabel,
         lastTopupDate: lastTx ? new Date(lastTx.created_at).toLocaleDateString('en-GB') : 'Never',
@@ -352,8 +361,9 @@ export const botController = {
 
       const formattedTransactions = transactions.map((tx: any) => ({
         date: new Date(tx.created_at).toLocaleDateString('en-GB'),
-        amountNaira: Number(tx.amount_ngn),
-        grdAmount: Number(tx.grd_amount)
+        usdcAmount: Number(tx.usdc_amount),
+        grdAmount: Number(tx.grd_amount),
+        type: tx.type
       }));
 
       res.status(200).json({ transactions: formattedTransactions });
@@ -364,6 +374,122 @@ export const botController = {
       }
       console.error('[bot/tenants/history] error:', error);
       res.status(500).json({ error: 'Failed to fetch history' });
+    }
+  },
+
+  async fundWallet(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
+
+      const user = await db('users').where({ phone }).first();
+      if (!user) {
+        res.status(404).json({ success: false, error: 'User not found' });
+        return;
+      }
+
+      res.status(200).json({ 
+        success: true, 
+        walletAddress: user.wallet_address,
+        message: 'Step 1: Send USDC to your wallet.\nStep 2: Use the "Deposit" command to lock it into the platform for purchasing tokens.'
+      });
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ success: false, errors: error.issues });
+        return;
+      }
+      console.error('[bot/fund] error:', error);
+      res.status(500).json({ success: false, error: 'Failed to retrieve funding details' });
+    }
+  },
+
+  async depositTokens(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
+      const { usdcAmount } = z.object({ usdcAmount: z.number().positive() }).parse(req.body);
+
+      const user = await db('users').where({ phone, role: 'tenant' }).first();
+      if (!user) {
+        res.status(404).json({ success: false, error: 'Tenant not found' });
+        return;
+      }
+
+      if (!user.privy_user_id) {
+        res.status(400).json({ success: false, error: 'Wallet not fully provisioned. Please re-register.' });
+        return;
+      }
+
+      const { txHash } = await contractService.depositUsdc(user.privy_user_id, usdcAmount.toString());
+
+      res.status(200).json({ success: true, txHash, message: `Successfully deposited ${usdcAmount} USDC into the contract.` });
+    } catch (error: any) {
+      console.error('[bot/deposit] error:', error);
+      res.status(500).json({ success: false, error: error.message || 'Failed to deposit USDC' });
+    }
+  },
+
+  async buyTokens(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
+      const { usdcAmount } = z.object({ usdcAmount: z.number().positive() }).parse(req.body);
+
+      const user = await db('users').where({ phone, role: 'tenant' }).first();
+      if (!user) {
+        res.status(404).json({ success: false, error: 'Tenant not found' });
+        return;
+      }
+
+      const tenantRecord = await db('tenants')
+        .join('properties', 'tenants.property_id', 'properties.id')
+        .join('users as landlords', 'properties.landlord_id', 'landlords.id')
+        .where({ 'tenants.user_id': user.id })
+        .select('tenants.id as tenant_id', 'properties.id as property_id', 'landlords.wallet_address as landlordWallet')
+        .first();
+
+      if (!tenantRecord) {
+        res.status(404).json({ success: false, error: 'Tenant not linked to property' });
+        return;
+      }
+
+      const lockedUsdc = await contractService.getTenantUsdcBalance(user.wallet_address);
+      if (lockedUsdc < usdcAmount) {
+        res.status(400).json({ 
+          success: false, 
+          error: `Insufficient locked USDC balance (${lockedUsdc}). Please DEPOSIT from your wallet to the platform first.` 
+        });
+        return;
+      }
+
+      if (!user.privy_user_id) {
+        res.status(400).json({ success: false, error: 'Wallet not fully provisioned. Please re-register.' });
+        return;
+      }
+
+      // Execute on-chain purchase via Privy
+      const { txHash } = await contractService.purchaseTokens(
+        user.privy_user_id,
+        usdcAmount.toString(),
+        tenantRecord.landlordWallet
+      );
+
+      // Record transaction
+      await db('transactions').insert({
+        tenant_id: tenantRecord.tenant_id,
+        property_id: tenantRecord.property_id,
+        grd_amount: usdcAmount, // assuming 1 USDC = 1 GRD for MVP
+        usdc_amount: usdcAmount,
+        tx_hash: txHash,
+        type: 'buy',
+        status: TRANSACTION_STATUS.COMPLETED
+      });
+
+      res.status(200).json({ success: true, txHash });
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ success: false, errors: error.issues });
+        return;
+      }
+      console.error('[bot/buy] error:', error);
+      res.status(500).json({ success: false, error: 'Failed to purchase tokens' });
     }
   },
 
@@ -521,25 +647,33 @@ export const botController = {
       const earnings = await db('transactions')
         .join('tenants', 'transactions.tenant_id', 'tenants.id')
         .whereIn('tenants.property_id', propertyIds)
-        .where({ 'transactions.status': 'SUCCESSFUL' })
+        .where({ 'transactions.status': TRANSACTION_STATUS.COMPLETED })
         .select('tenants.property_id')
-        .sum('transactions.amount_ngn as total')
+        .sum('transactions.usdc_amount as total')
         .groupBy('tenants.property_id');
 
-      const shareMultiplier = LANDLORD_SHARE_BPS / 10000;
+      const multiplier = LANDLORD_SHARE_BPS / 10000;
 
       const breakdown = properties.map(p => {
         const pEarnings = earnings.find(e => e.property_id === p.id);
+        const gross = Number(pEarnings?.total || 0);
         return {
           code: p.code,
           label: p.label,
-          amount: Math.round((Number(pEarnings?.total || 0) * shareMultiplier) * 100) / 100
+          grossEarnings: gross,
+          netEarnings: Math.round(gross * multiplier * 100) / 100
         };
       });
 
-      const total = breakdown.reduce((sum, item) => sum + item.amount, 0);
+      const totalGross = breakdown.reduce((sum, item) => sum + item.grossEarnings, 0);
+      const totalNet = breakdown.reduce((sum, item) => sum + item.netEarnings, 0);
 
-      res.status(200).json({ total, breakdown });
+      res.status(200).json({ 
+        totalGross, 
+        totalNet, 
+        platformFee: `${PLATFORM_FEE_PERCENT + OPS_FEE_PERCENT}%`,
+        breakdown 
+      });
     } catch (error: any) {
       console.error('[bot/landlords/earnings] error:', error);
       res.status(500).json({ error: 'Failed to fetch earnings' });
@@ -567,17 +701,20 @@ export const botController = {
 
       const earnings = await db('transactions')
         .join('tenants', 'transactions.tenant_id', 'tenants.id')
-        .where({ 'tenants.property_id': property.id, 'transactions.status': 'SUCCESSFUL' })
-        .sum('transactions.amount_ngn as total')
+        .where({ 'tenants.property_id': property.id, 'transactions.status': TRANSACTION_STATUS.COMPLETED })
+        .sum('transactions.usdc_amount as total')
         .count('transactions.id as count')
         .first();
 
-      const shareMultiplier = LANDLORD_SHARE_BPS / 10000;
-      const amount = Math.round((Number(earnings?.total || 0) * shareMultiplier) * 100) / 100;
+      const grossAmount = Number(earnings?.total || 0);
+      const multiplier = LANDLORD_SHARE_BPS / 10000;
+      const netAmount = Math.round(grossAmount * multiplier * 100) / 100;
 
       res.status(200).json({
         code,
-        amount,
+        grossAmount,
+        netAmount,
+        platformFee: `${PLATFORM_FEE_PERCENT + OPS_FEE_PERCENT}%`,
         purchaseCount: Number(earnings?.count || 0)
       });
     } catch (error: any) {
@@ -640,7 +777,10 @@ export const botController = {
   async initiateWithdrawal(req: Request, res: Response): Promise<void> {
     try {
       const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
-      const { amount } = z.object({ amount: z.number().min(0) }).parse(req.body);
+      const { amount, destinationAddress } = z.object({ 
+        amount: z.number().min(0),
+        destinationAddress: z.string().startsWith('0x').length(42)
+      }).parse(req.body);
 
       if (amount <= 0) {
         res.status(400).json({ error: 'Withdrawal amount must be greater than zero' });
@@ -653,26 +793,28 @@ export const botController = {
         return;
       }
 
-      if (!landlord.account_number) {
-        res.status(400).json({ error: 'Bank details missing. Save bank details first.' });
+      if (!landlord.wallet_address || !landlord.privy_user_id) {
+        res.status(400).json({ error: 'Landlord wallet not fully provisioned. Please re-register.' });
         return;
       }
 
-      const [withdrawal] = await db('withdrawals').insert({
-        landlord_id: landlord.id,
-        amount,
-        bank_name: landlord.bank_name,
-        account_number: landlord.account_number,
-        status: 'PENDING'
-      }).returning('*');
+      const usdcBalance = await contractService.getUsdcBalance(landlord.wallet_address);
+      if (usdcBalance < amount) {
+        res.status(400).json({ error: 'Insufficient USDC balance' });
+        return;
+      }
+
+      const { txHash } = await contractService.transferUsdc(landlord.privy_user_id, destinationAddress, amount.toString());
 
       res.status(201).json({
         success: true,
-        amount,
-        bankName: landlord.bank_name,
-        bankLast4: landlord.account_number.slice(-4)
+        txHash
       });
     } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({ error: 'Invalid input', details: error.issues });
+        return;
+      }
       console.error('[bot/landlord/withdraw] error:', error);
       res.status(500).json({ error: 'Failed to initiate withdrawal' });
     }
@@ -719,6 +861,16 @@ export const botController = {
     } catch (error: any) {
       console.error('[bot/landlord/remove-tenant] error:', error);
       res.status(500).json({ error: 'Failed to remove tenant' });
+    }
+  },
+
+  async getPlatformStats(req: Request, res: Response): Promise<void> {
+    try {
+      const stats = await contractService.getPlatformStats();
+      res.status(200).json(stats);
+    } catch (error: any) {
+      console.error('[bot/platform/stats] error:', error);
+      res.status(500).json({ error: 'Failed to fetch platform stats' });
     }
   },
 
@@ -770,11 +922,12 @@ export const botController = {
 
   async createProperty(req: Request, res: Response): Promise<void> {
     try {
-      const { phone, address, flatCount, label } = z.object({
+      const { phone, address, flatCount, label, state } = z.object({
         phone: z.string().min(7),
         address: z.string().min(5),
         flatCount: z.number().int().positive(),
         label: z.string().min(2),
+        state: z.string().min(2),
       }).parse(req.body);
 
       const landlord = await db('users').where({ phone, role: 'landlord' }).first();
@@ -783,12 +936,10 @@ export const botController = {
         return;
       }
 
-      // Generate a unique Property Code (GRD-LAG-0042 style)
+      // Generate a unique Property Code
       let isUnique = false;
       let code = '';
-      // Extract state abbreviation from address (first 3 letters of last word, default LAG)
-      const stateWords = address.split(',').map((s: string) => s.trim()).filter(Boolean);
-      const stateAbbr = (stateWords[stateWords.length - 1] || 'LAG').replace(/\s+state$/i, '').substring(0, 3).toUpperCase();
+      const stateAbbr = (state || 'LAG').substring(0, 3).toUpperCase();
       while (!isUnique) {
         const seq = String(Math.floor(Math.random() * 9000) + 1000);
         code = `GRD-${stateAbbr}-${seq}`;
@@ -796,11 +947,21 @@ export const botController = {
         if (!existing) isUnique = true;
       }
 
+      // 1. On-chain registration
+      try {
+        await contractService.registerProperty(code, landlord.wallet_address, flatCount, `${label}, ${state}`);
+      } catch (onChainError) {
+        console.error('[bot/properties/create] on-chain failed:', onChainError);
+        // We continue to DB even if on-chain fails for now, or you might want to return 500
+      }
+
+      // 2. DB Insert
       const [property] = await db('properties').insert({
         landlord_id: landlord.id,
         code,
         label,
         address,
+        state,
         flat_count: flatCount,
         status: 'ACTIVE'
       }).returning('*');
@@ -808,7 +969,8 @@ export const botController = {
       res.status(201).json({
         success: true,
         code: property.code,
-        label: property.label
+        label: property.label,
+        state: property.state
       });
     } catch (error: any) {
       console.error('[bot/properties/create] error:', error);

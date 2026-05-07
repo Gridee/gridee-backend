@@ -31,8 +31,8 @@ const EnvSchema = z.object({
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_WHATSAPP_FROM: z.string().optional(),
 
-  WHATSAPP_CLOUD_ACCESS_TOKEN: z.string().optional(),
-  WHATSAPP_CLOUD_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_API_TOKEN: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
 
   AT_API_KEY: z.string().optional(),
   AT_USERNAME: z.string().optional(),

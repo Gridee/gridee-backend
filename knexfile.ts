@@ -1,10 +1,25 @@
 import * as dotenv from 'dotenv';
 dotenv.config();
 
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error('Missing required env var: DATABASE_URL');
+}
+
+const isCloudPostgres =
+  databaseUrl.includes('neon.tech') || databaseUrl.includes('sslmode=require');
+
+const connection = isCloudPostgres
+  ? {
+      connectionString: databaseUrl,
+      ssl: { rejectUnauthorized: false },
+    }
+  : databaseUrl;
+
 export default {
   development: {
     client: 'pg',
-    connection: process.env.DATABASE_URL,
+    connection,
     migrations: {
       directory: './migrations',
       extension: 'ts',
@@ -12,7 +27,7 @@ export default {
   },
   test: {
     client: 'pg',
-    connection: process.env.DATABASE_URL || 'postgresql://localhost/gridee_test',
+    connection,
     migrations: {
       directory: './migrations',
       extension: 'ts',
@@ -20,7 +35,7 @@ export default {
   },
   production: {
     client: 'pg',
-    connection: process.env.DATABASE_URL,
+    connection,
     migrations: {
       directory: './migrations',
       extension: 'ts',
