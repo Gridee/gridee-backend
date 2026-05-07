@@ -90,7 +90,8 @@ export const privyService = {
           params: {
             transaction
           },
-          caip2: 'eip155:84532'
+          caip2: 'eip155:84532',
+          sponsor: true
         },
         {
           headers: {

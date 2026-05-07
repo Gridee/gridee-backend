@@ -169,7 +169,7 @@ export const botController = {
         console.error('[bot/tenants/register] landlord notification failed:', notifyError);
       }
 
-      const token = jwt.sign({ id: user.id, role: 'tenant' }, JWT_SECRET, { expiresIn: '7d' });
+      const token = jwt.sign({ id: user.id, role: 'tenant' }, process.env.JWT_SECRET!, { expiresIn: '7d' });
 
       res.status(201).json({
         success: true,
@@ -244,7 +244,7 @@ export const botController = {
       newUser.wallet_address = walletAddress;
       newUser.privy_user_id = walletId;
 
-      const token = jwt.sign({ id: newUser.id, role: 'landlord' }, JWT_SECRET, { expiresIn: '7d' });
+      const token = jwt.sign({ id: newUser.id, role: 'landlord' }, process.env.JWT_SECRET!, { expiresIn: '7d' });
 
       res.status(201).json({
         success: true,
