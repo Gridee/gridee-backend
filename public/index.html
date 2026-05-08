@@ -328,29 +328,38 @@
         }
 
         async function consume(tenantId) {
+            console.log(`[HAL] Consuming for tenant ${tenantId}`);
             await performAction('/hal/mock-consume', { tenantId, kwhAmount: 1 });
         }
 
         async function cutoff(tenantId) {
+            console.log(`[HAL] Cutting off tenant ${tenantId}`);
             await performAction('/hal/cutoff', { tenantId });
         }
 
         async function reconnect(tenantId) {
+            console.log(`[HAL] Reconnecting tenant ${tenantId}`);
             await performAction('/hal/reconnect', { tenantId });
         }
 
         async function performAction(url, body) {
             try {
-                const response = await fetch(url, {
+                const res = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body)
                 });
-                const result = await response.json();
-                showToast(result.message || 'Action completed');
-                fetchData(); // Refresh
-            } catch (error) {
-                showToast('Failed to execute action', true);
+                const data = await res.json();
+                if (res.ok) {
+                    showToast('✅ Success: ' + (data.message || 'Action completed'));
+                    fetchData(); // Refresh data
+                } else {
+                    showToast('❌ Error: ' + (data.error || 'Failed'));
+                    console.error('[HAL Error]', data);
+                }
+            } catch (err) {
+                showToast('❌ Connection Failed');
+                console.error('[HAL Connection Error]', err);
             }
         }
 

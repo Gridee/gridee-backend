@@ -156,6 +156,16 @@ export const botController = {
       });
       user.wallet_address = walletAddress;
       user.privy_user_id = walletId;
+      
+      // 3. Provision Meter
+      const meterSerial = `MTR-${propertyCode.toUpperCase()}-${user.id}`;
+      await db('meters').insert({
+        serial_number: meterSerial,
+        tenant_id: user.id,
+        property_id: property.id,
+        cumulative_reading: 0.0,
+        status: 'ACTIVE'
+      });
 
       // Register tenant on-chain in PropertyRegistry
       try {
