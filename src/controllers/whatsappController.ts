@@ -71,7 +71,7 @@ export const whatsappController = {
 
       // 2. Handle Stateful Flows
       if (session.state !== 'IDLE') {
-        return await whatsappController.handleStateFlow(req, botRes as any, phone, message, user, session);
+        return await whatsappController.handleStateFlow(req, res, botRes as any, phone, message, user, session);
       }
 
       const input = message.toLowerCase();
@@ -275,7 +275,7 @@ export const whatsappController = {
     }
   },
 
-  handleStateFlow: async (req: Request, botRes: any, phone: string, message: string, user: any, session: UserSession): Promise<void> => {
+  handleStateFlow: async (req: Request, res: Response, botRes: any, phone: string, message: string, user: any, session: UserSession): Promise<void> => {
     const input = message.trim();
     
     try {
