@@ -105,6 +105,7 @@ export const halController = {
 
       const tenants = await db('tenants')
         .join('users', 'tenants.user_id', 'users.id')
+        .leftJoin('meters', 'tenants.id', 'meters.tenant_id')
         .whereIn('tenants.property_id', propertyIds)
         .select(
           'tenants.id',
@@ -113,7 +114,9 @@ export const halController = {
           'tenants.status',
           'users.name',
           'users.phone',
-          'users.wallet_address'
+          'users.wallet_address',
+          'meters.cumulative_reading',
+          'meters.serial_number'
         );
 
       const results = properties.map(p => ({
