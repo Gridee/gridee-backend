@@ -30,7 +30,13 @@ export const HAL = {
 
     if (!tenant || !tenant.wallet_address || tenant.status !== 'CONNECTED') return;
 
+    // 1. Update on-chain balance
     await deductEnergyTokens(tenant.wallet_address, kwhUsed.toString());
+
+    // 2. Increment physical meter reading in DB (Simulation only)
+    await db('meters')
+      .where({ tenant_id: tenantId })
+      .increment('cumulative_reading', kwhUsed);
   },
 
   async cutOff(tenantId: number): Promise<void> {

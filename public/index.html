@@ -298,9 +298,9 @@
                             <p class="subtitle">${prop.address}</p>
                         </div>
                         <div class="meter-display">
-                            <div class="meter-label">Main Meter</div>
+                            <div class="meter-label">Property Meter</div>
                             <div class="meter-value">${prop.meter_reading || '0.00'}</div>
-                            <div class="meter-label">Total kWh</div>
+                            <div class="meter-label">Total Consumption (kWh)</div>
                         </div>
                     </div>
                     <div class="tenants-grid">
@@ -309,7 +309,8 @@
                                 <div class="tenant-name">${t.name}</div>
                                 <div class="tenant-meta">
                                     Flat: ${t.flat_number || 'N/A'}<br>
-                                    ${t.phone}
+                                    Meter SN: <strong>${t.serial_number || 'N/A'}</strong><br>
+                                    Current Reading: <strong>${t.cumulative_reading || '0.00'}</strong> kWh
                                 </div>
                                 <div class="status-badge status-${t.status}">${t.status}</div>
                                 <div class="actions">
