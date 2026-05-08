@@ -10,7 +10,6 @@ import { ethers } from 'ethers';
 import botRoutes from './routes/botRoutes';
 import halRoutes from './routes/halRoutes';
 import whatsappRoutes from './routes/whatsappRoutes';
-import webhookRoutes from './routes/webhookRoutes';
 import { startConsumptionEngine, stopConsumptionEngine } from './jobs/consumptionEngine';
 
 dotenv.config();
@@ -60,7 +59,6 @@ const generalLimiter = rateLimit({
 app.use('/hal', generalLimiter, halRoutes);
 app.use('/bot', generalLimiter, botRoutes);
 app.use('/whatsapp', generalLimiter, whatsappRoutes);
-// app.use('/webhooks', generalLimiter, webhookRoutes);
 
 app.get('/dev/meter-sim', (_req, res) => {
   if (!IS_DEV_MODE) {
