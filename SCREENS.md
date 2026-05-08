@@ -182,3 +182,80 @@ Sent automatically by `notificationService` — the user does not trigger these 
 | `PROPERTY_REGISTERED` | `propertyRegistered(code, label)` | "Property registered! Your code is [code]. Share it with your tenants." |
 
 ---
+
+### Payment Instructions
+
+| Screen ID                           | Template function                                                                                       | User-facing prompt / description                                                                |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `PAYMENT_INSTRUCTIONS_BANK`         | `paymentInstructionsBankTransfer(accountNumber, bankName, reference, amountNGN, expiryMins, grdAmount)` | Shows virtual account number, bank, reference, NGN amount, GRD to receive, and expiry countdown |
+| `PAYMENT_INSTRUCTIONS_MOBILE_MONEY` | `paymentInstructionsMobileMoney(network, reference, amountNGN)`                                         | Shows mobile money network, reference, and NGN amount to send                                   |
+| `PAYMENT_INSTRUCTIONS_CRYPTO`       | `paymentInstructionsCrypto(walletAddress, amountUSDT, reference)`                                       | Shows USDT wallet address, USDT amount, and reference/memo                                      |
+
+### Payment Outcomes
+
+| Screen ID           | Template function                                        | User-facing prompt / description                                                                    |
+| ------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `PAYMENT_CONFIRMED` | `paymentConfirmed(grdAmount, newBalance, kwhEquivalent)` | "Payment confirmed! +X GRD added. New balance: Y GRD (≈ Z kWh)." — triggered by Flutterwave webhook |
+| `PAYMENT_EXPIRED`   | `paymentExpired()`                                       | Payment window closed with no transfer received. Reassures user, prompts retry.                     |
+| `PAYMENT_FAILED`    | `paymentFailed(reason)`                                  | Payment provider returned a failure. Shows reason, reassures no deduction, prompts retry.           |
+
+### SMS / USSD
+
+| Screen ID                   | Template function                                | Channel  | User-facing message                                                            |
+| --------------------------- | ------------------------------------------------ | -------- | ------------------------------------------------------------------------------ |
+| `PURCHASE_SMS_CONFIRMATION` | `purchaseSMSConfirmation(grdAmount, newBalance)` | SMS only | Plain-text confirmation under 160 chars. No WhatsApp markdown. For USSD users. |
+
+> **Note:** `PURCHASE_SMS_CONFIRMATION` is the only template with a 160-char SMS limit constraint. All other templates target WhatsApp (4,096-char limit).
+
+---
+
+### Balance Alerts (system-initiated → tenant)
+
+| Screen ID           | Template function                   | Trigger                                                                     |
+| ------------------- | ----------------------------------- | --------------------------------------------------------------------------- |
+| `ALERT_LOW_BALANCE` | `lowBalanceAlert(balance, kwhLeft)` | HAL emits `BALANCE_LOW` when tenant balance drops below 1 kWh               |
+| `ALERT_CUTOFF`      | `cutoffNotice()`                    | HAL emits `BALANCE_CUTOFF` when balance hits zero and meter suspends access |
+| `ALERT_RESTORED`    | `restoredNotice(newBalance)`        | HAL emits `BALANCE_RESTORED` after a top-up following a cutoff              |
+
+### Landlord Notifications (system-initiated → landlord)
+
+| Screen ID              | Template function                           | Trigger                                                               |
+| ---------------------- | ------------------------------------------- | --------------------------------------------------------------------- |
+| `NOTIFY_NEW_TENANT`    | `newTenantJoined(tenantName, propertyCode)` | HAL emits `TENANT_JOINED` when a tenant completes registration        |
+| `EARNINGS_SUMMARY`     | `earningsSummary(total, breakdown)`         | HAL emits `EARNINGS_REQUESTED` when landlord sends EARNINGS command   |
+| `WITHDRAWAL_INITIATED` | `withdrawalInitiated(amount, bankLast4)`    | HAL emits `WITHDRAWAL_INITIATED` after payout request is submitted    |
+| `WITHDRAWAL_CONFIRMED` | `withdrawalConfirmed(amount)`               | HAL emits `WITHDRAWAL_CONFIRMED` after payment provider settles funds |
+
+### Tenant Removal (system-initiated → two recipients)
+
+| Screen ID                 | Template function                  | Recipient                                        |
+| ------------------------- | ---------------------------------- | ------------------------------------------------ |
+| `TENANT_REMOVED_LANDLORD` | `removedTenant(tenantName)`        | Landlord — confirms action was completed         |
+| `TENANT_REMOVED_EVICTED`  | `youHaveBeenRemoved(propertyName)` | Evicted tenant — neutral notice, no reason given |
+
+> **Note on dual dispatch:** `TENANT_REMOVED` fires both messages simultaneously via `Promise.all()` in `notificationService.ts`.
+
+---
+
+### Missing templates added
+
+| Screen ID                     | Template function                                      | Description                                                                                                 |
+| ----------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `MY_PROPERTY_VIEW`            | `myPropertyInfo(label, address, landlordName, status)` | Tenant's view of their registered compound — label, address, landlord name, solar status                    |
+| `TENANT_REMOVED_LANDLORD_ALT` | `tenantRemoved(propertyName)`                          | Landlord confirmation — names the property. Use alongside `removedTenant(tenantName)` depending on context. |
+
+### Safety wrapper added
+
+| Function           | Description                                                                                                                   |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `safeMessage(msg)` | Truncates any string exceeding 4,096 chars to 4,090 + `...`. Must wrap every `send()` call as the final step before dispatch. |
+
+### Tone fixes applied (no screen ID change)
+
+| Template             | What changed                                                                   |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `errorGeneric`       | Removed "inconvenience" → "Sorry for the stress — we're on it"                 |
+| `cutoffNotice`       | "temporarily suspended" → "paused for now"                                     |
+| `youHaveBeenRemoved` | "Your Gridee access has changed" → "We have an update about your solar access" |
+
+---
