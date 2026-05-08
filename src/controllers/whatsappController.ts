@@ -20,7 +20,11 @@ type BotState =
   | 'AWAITING_PROPERTY_CODE'
   | 'AWAITING_FLAT_NUMBER'
   | 'AWAITING_PROPERTY_NAME'
-  | 'AWAITING_PROPERTY_ADDRESS';
+  | 'AWAITING_PROPERTY_ADDRESS'
+  | 'AWAITING_NEW_PROPERTY_NAME'
+  | 'AWAITING_NEW_PROPERTY_ADDRESS'
+  | 'AWAITING_NEW_PROPERTY_STATE'
+  | 'AWAITING_NEW_PROPERTY_FLATS';
 
 interface UserSession {
   state: BotState;
@@ -97,7 +101,9 @@ export const whatsappController = {
       }
 
       if (input.startsWith('fund') || input.startsWith('topup')) {
+        const walletAddress = user?.wallet_address || 'Not found';
         const amount = parseFloat(input.replace('fund', '').replace('topup', '').trim());
+        
         if (!isNaN(amount) && amount > 0) {
           twiml.message(`⏳ *Processing top-up of ${amount} USDC...*\n\nI'll notify you once it's confirmed.`);
           res.type('text/xml').send(twiml.toString());
@@ -111,8 +117,9 @@ export const whatsappController = {
           })().catch(console.error);
           return;
         }
+        
         await whatsappController.updateSession(phone, { state: 'AWAITING_FUND_AMOUNT' });
-        twiml.message("💳 *How many USDC* would you like to top up your wallet with? (e.g., 20)");
+        twiml.message(`💳 *Funding Your Wallet*\n\nYour address:\n\`${walletAddress}\`\n\nHow many USDC would you like to top up? (e.g., 20)`);
         res.type('text/xml').send(twiml.toString());
         return;
       }
@@ -173,6 +180,13 @@ export const whatsappController = {
           return;
         }
 
+        if (input.includes('add property') || input.includes('create property')) {
+          await whatsappController.updateSession(phone, { state: 'AWAITING_NEW_PROPERTY_NAME' });
+          twiml.message("🏠 *Let's add a new property.*\n\nWhat is the *Name* of the property? (e.g., Green Villa)");
+          res.type('text/xml').send(twiml.toString());
+          return;
+        }
+
         if (input === 'stats') {
           await botController.getPlatformStats(req as any, botRes as any);
           return;
@@ -221,7 +235,8 @@ export const whatsappController = {
             } else if (data.totalProperties !== undefined) {
               text = `📊 *Platform Stats*\n\n🏘️ Total Properties: *${data.totalProperties}*\n👥 Total Tenants: *${data.totalTenants}*\n⚡ Energy Sold: *${data.totalEnergySold} kWh*`;
             } else if (data.user && data.message) {
-              text = `🎊 *Welcome, ${data.user.name}!*\n\n${data.message}\n\nType *'Menu'* to see what you can do next!`;
+              const walletInfo = data.user?.wallet_address ? `\n\n📍 *Your Wallet Address*:\n\`${data.user.wallet_address}\`\n_(You can send USDC to this address on the Base network)_` : '';
+              text = `🎊 *Welcome, ${data.user.name}!*\n\n${data.message}${walletInfo}\n\nType *'Menu'* to see what you can do next!`;
             } else if (data.message) {
               text = (data.success === false ? "❌ " : "✅ ") + data.message;
             } else if (data.error) {
@@ -271,7 +286,7 @@ export const whatsappController = {
     } else if (user.role === 'tenant') {
       return `👋 *Hello, ${user.name}!*\n\n*Your Tenant Menu:*\n1️⃣ *Balance*: Check energy & USDC\n2️⃣ *Fund [Amount]*: Top up your USDC wallet\n3️⃣ *Buy [Amount]*: Purchase energy tokens\n4️⃣ *History*: View recent transactions\n5️⃣ *Help*: Get support\n\n_Just type a command to start!_`;
     } else {
-      return `🏠 *Hello, Landlord ${user.name}!*\n\n*Your Dashboard:*\n1️⃣ *Earnings*: View your revenue\n2️⃣ *Withdraw*: Send USDC to external wallet\n3️⃣ *Properties*: View your portfolio\n4️⃣ *Stats*: Platform overview\n\n_What would you like to do?_`;
+      return `🏠 *Hello, Landlord ${user.name}!*\n\n*Your Dashboard:*\n1️⃣ *Earnings*: View your revenue\n2️⃣ *Withdraw*: Send USDC to external wallet\n3️⃣ *Properties*: View your portfolio\n4️⃣ *Add Property*: Register a new building\n5️⃣ *Stats*: Platform overview\n\n_What would you like to do?_`;
     }
   },
 
@@ -332,6 +347,44 @@ export const whatsappController = {
           await botController.registerLandlord(req as any, botRes as any);
           
           // Note: In a real app, we'd chain the property creation too.
+          break;
+
+        case 'AWAITING_NEW_PROPERTY_NAME':
+          await whatsappController.updateSession(phone, { state: 'AWAITING_NEW_PROPERTY_ADDRESS', tempData: { label: input } });
+          await notificationService.sendSms(phone, "📍 Great. Now, what is the *Address* of the property?");
+          break;
+
+        case 'AWAITING_NEW_PROPERTY_ADDRESS':
+          await whatsappController.updateSession(phone, { state: 'AWAITING_NEW_PROPERTY_STATE', tempData: { ...session.tempData, address: input } });
+          await notificationService.sendSms(phone, "🏙️ What *State* is this property located in? (e.g., Lagos, Abuja)");
+          break;
+
+        case 'AWAITING_NEW_PROPERTY_STATE':
+          await whatsappController.updateSession(phone, { state: 'AWAITING_NEW_PROPERTY_FLATS', tempData: { ...session.tempData, state: input } });
+          await notificationService.sendSms(phone, "🔢 How many *Flats/Units* does this property have? (e.g., 5)");
+          break;
+
+        case 'AWAITING_NEW_PROPERTY_FLATS':
+          const flatCount = parseInt(input);
+          if (isNaN(flatCount) || flatCount <= 0) {
+            await notificationService.sendSms(phone, "❌ Please enter a valid number of flats.");
+          } else {
+            const { label, address, state } = session.tempData;
+            await whatsappController.clearSession(phone);
+            botRes.send(`🏠 *Registering ${label}...*\n\nThis will take a moment to record on-chain.`);
+            
+            (async () => {
+              const asyncBotRes = whatsappController.createTwiMLRes(new MessagingResponse(), res, phone);
+              req.body = { 
+                phone, 
+                address, 
+                label, 
+                flatCount,
+                state: state || 'Lagos'
+              };
+              await botController.createProperty(req as any, asyncBotRes as any);
+            })().catch(console.error);
+          }
           break;
 
         // --- TRANSACTION FLOWS ---
