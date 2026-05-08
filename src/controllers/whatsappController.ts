@@ -88,19 +88,19 @@ export const whatsappController = {
       }
 
       // 4. Common Commands (Proxy to botController)
-      if (input.includes('balance') || input === 'bal') {
+      if (input.includes('balance') || input === 'bal' || input === '1') {
         req.params = { phone };
         await botController.getTenantBalance(req as any, botRes as any);
         return;
       }
 
-      if (input === 'history' || input === 'transactions') {
+      if (input === 'history' || input === 'transactions' || input === '4') {
         req.params = { phone };
         await botController.getTenantHistory(req as any, botRes as any);
         return;
       }
 
-      if (input.startsWith('fund') || input.startsWith('topup')) {
+      if (input.startsWith('fund') || input.startsWith('topup') || input === '2') {
         const walletAddress = user?.wallet_address || 'Not found';
         const amount = parseFloat(input.replace('fund', '').replace('topup', '').trim());
         
@@ -124,7 +124,7 @@ export const whatsappController = {
         return;
       }
 
-      if (input.startsWith('buy')) {
+      if (input.startsWith('buy') || input === '3') {
         const amount = parseFloat(input.replace('buy', '').trim());
         if (!isNaN(amount) && amount > 0) {
           twiml.message(`⏳ *Purchasing ${amount} USDC worth of tokens...*\n\nThis takes a few seconds on-chain.`);
@@ -168,31 +168,31 @@ export const whatsappController = {
 
       // Landlord Specific Commands
       if (user?.role === 'landlord') {
-        if (input === 'earnings' || input === 'earn') {
+        if (input === 'earnings' || input === 'earn' || input === '1') {
           req.params = { phone };
           await botController.getLandlordEarnings(req as any, botRes as any);
           return;
         }
 
-        if (input === 'properties' || input === 'props') {
+        if (input === 'properties' || input === 'props' || input === '3') {
           req.params = { phone };
           await botController.getLandlordProperties(req as any, botRes as any);
           return;
         }
 
-        if (input.includes('add property') || input.includes('create property')) {
+        if (input.includes('add property') || input.includes('create property') || input.includes('4')) {
           await whatsappController.updateSession(phone, { state: 'AWAITING_NEW_PROPERTY_NAME' });
           twiml.message("🏠 *Let's add a new property.*\n\nWhat is the *Name* of the property? (e.g., Green Villa)");
           res.type('text/xml').send(twiml.toString());
           return;
         }
 
-        if (input === 'stats') {
+        if (input === 'stats' || input === '5') {
           await botController.getPlatformStats(req as any, botRes as any);
           return;
         }
 
-        if (input.startsWith('withdraw')) {
+        if (input.startsWith('withdraw') || input === '2') {
           await whatsappController.updateSession(phone, { state: 'AWAITING_WITHDRAWAL_AMOUNT' });
           twiml.message("💸 *How much USDC* would you like to withdraw?");
           res.type('text/xml').send(twiml.toString());
