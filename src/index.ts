@@ -9,6 +9,8 @@ import { redis } from './redis';
 import { ethers } from 'ethers';
 import botRoutes from './routes/botRoutes';
 import halRoutes from './routes/halRoutes';
+import whatsappRoutes from './routes/whatsappRoutes';
+import webhookRoutes from './routes/webhookRoutes';
 import { startConsumptionEngine, stopConsumptionEngine } from './jobs/consumptionEngine';
 
 dotenv.config();
@@ -28,7 +30,7 @@ for (const key of requiredEnvVars) {
 }
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '3000', 10);
+const PORT = parseInt(process.env.PORT || '8000', 10);
 const IS_DEV_MODE = String(process.env.IS_DEV || '').trim().toLowerCase() === 'true';
 
 app.use(cors({
@@ -38,6 +40,7 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '1mb' }));
+app.use(express.static('public'));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 app.use(pinoHttp({ logger }));
@@ -54,8 +57,10 @@ const generalLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later' },
 });
 
-app.use('/api/hal', generalLimiter, halRoutes);
+app.use('/hal', generalLimiter, halRoutes);
 app.use('/bot', generalLimiter, botRoutes);
+app.use('/whatsapp', generalLimiter, whatsappRoutes);
+// app.use('/webhooks', generalLimiter, webhookRoutes);
 
 app.get('/dev/meter-sim', (_req, res) => {
   if (!IS_DEV_MODE) {

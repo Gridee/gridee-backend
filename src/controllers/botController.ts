@@ -97,10 +97,11 @@ export const botController = {
     let createdTenantId: number | null = null;
 
     try {
-      const { phone, name, propertyCode } = z.object({
+      const { phone, name, propertyCode, flatNumber } = z.object({
         phone: z.string().min(7),
-        name: z.string().min(1),
+        name: z.string().min(2),
         propertyCode: z.string().min(3),
+        flatNumber: z.string().optional()
       }).parse(req.body);
 
       const property = await db('properties')
@@ -141,6 +142,7 @@ export const botController = {
       const [tenantRow] = await db('tenants').insert({
         user_id: user.id,
         property_id: property.id,
+        flat_number: flatNumber,
         status: 'CONNECTED',
       }).returning('id');
       createdTenantId = Number(tenantRow?.id);
@@ -805,6 +807,26 @@ export const botController = {
       }
 
       const { txHash } = await contractService.transferUsdc(landlord.privy_user_id, destinationAddress, amount.toString());
+
+      // Record in withdrawals table
+      await db('withdrawals').insert({
+        user_id: landlord.id,
+        amount,
+        destination_address: destinationAddress,
+        tx_hash: txHash,
+        status: TRANSACTION_STATUS.COMPLETED
+      });
+
+      // Also record in transactions table for history
+      await db('transactions').insert({
+        tenant_id: null, // Landlord withdrawal
+        property_id: null,
+        grd_amount: 0,
+        usdc_amount: amount,
+        tx_hash: txHash,
+        type: 'withdraw',
+        status: TRANSACTION_STATUS.COMPLETED
+      });
 
       res.status(201).json({
         success: true,

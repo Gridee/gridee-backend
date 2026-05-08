@@ -1,48 +1,53 @@
-import { sendSMS } from './smsService';
+import twilio from 'twilio';
 import { db } from '../db';
-import axios from 'axios';
+import { sendSMS } from './smsService';
+
+const accountSid = process.env.TWILIO_ACCOUNT_SID;
+const authToken = process.env.TWILIO_AUTH_TOKEN;
+const client = accountSid && authToken ? twilio(accountSid, authToken) : null;
 
 export const notificationService = {
   async sendViaPreferredChannels(
     phone: string,
     message: string
   ): Promise<{ sentSuccessfully: boolean; channelUsed: 'whatsapp' | 'sms' }> {
-    let channelUsed: 'whatsapp' | 'sms' = 'sms';
+    let channelUsed: 'whatsapp' | 'sms' = 'whatsapp';
     let sentSuccessfully = false;
 
-    const waToken = process.env.WHATSAPP_API_TOKEN;
-    const waPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-
-    if (waToken && waPhoneId) {
+    // 1. Try Twilio WhatsApp
+    if (client) {
       try {
-        await axios.post(
-          `https://graph.facebook.com/v17.0/${waPhoneId}/messages`,
-          {
-            messaging_product: 'whatsapp',
-            to: phone,
-            text: { body: message },
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${waToken}`,
-              'Content-Type': 'application/json',
-            },
-          }
-        );
-        channelUsed = 'whatsapp';
+        await client.messages.create({
+          from: process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886',
+          to: phone.includes('whatsapp:') ? phone : `whatsapp:+${phone.replace('+', '')}`,
+          body: message,
+        });
         sentSuccessfully = true;
-      } catch {
-        // WhatsApp failed, fall through to SMS.
+        channelUsed = 'whatsapp';
+      } catch (error: any) {
+        console.warn(`[Twilio] Failed (Code: ${error.code}): ${error.message}`);
+        // If account is limited, don't try Twilio SMS either, just fall through to Termii
       }
     }
 
+    // 2. Fallback to Termii SMS
     if (!sentSuccessfully) {
-      await sendSMS(phone, message);
-      channelUsed = 'sms';
-      sentSuccessfully = true;
+      try {
+        const rawPhone = phone.replace('whatsapp:', '').replace('+', '');
+        console.log(`[Termii] Attempting SMS fallback to ${rawPhone}`);
+        await sendSMS(rawPhone, message);
+        sentSuccessfully = true;
+        channelUsed = 'sms';
+      } catch (smsError: any) {
+        console.error('[Termii] SMS fallback failed:', smsError.message);
+      }
     }
 
     return { sentSuccessfully, channelUsed };
+  },
+
+  async sendSms(phone: string, message: string): Promise<void> {
+    await this.sendViaPreferredChannels(phone, message);
   },
 
   async notifyLandlord(propertyId: number, tenantName: string): Promise<void> {

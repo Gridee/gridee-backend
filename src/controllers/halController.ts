@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { db } from '../db';
 import { cutOff, deductConsumption, reconnect } from '../hal';
 
 const mockConsumeSchema = z.object({
@@ -73,6 +74,56 @@ export const halController = {
         res.status(400).json({ errors: error.issues });
         return;
       }
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  async getLandlordData(req: Request, res: Response): Promise<void> {
+    try {
+      const { phone } = z.object({ phone: z.string().min(7) }).parse(req.params);
+      console.log(`[HAL/getLandlordData] Searching for phone: ${phone}`);
+      
+      const user = await db('users').where({ phone }).first();
+      
+      if (!user) {
+        console.log(`[HAL/getLandlordData] No user found with phone: ${phone}`);
+        res.status(404).json({ error: 'User not found' });
+        return;
+      }
+
+      if (user.role !== 'landlord') {
+        console.log(`[HAL/getLandlordData] User found but role is: ${user.role}`);
+        res.status(403).json({ error: 'User is not a landlord' });
+        return;
+      }
+
+      const landlord = user;
+      console.log(`[HAL/getLandlordData] Landlord found: ID ${landlord.id}`);
+
+      const properties = await db('properties').where({ landlord_id: landlord.id });
+      const propertyIds = properties.map(p => p.id);
+
+      const tenants = await db('tenants')
+        .join('users', 'tenants.user_id', 'users.id')
+        .whereIn('tenants.property_id', propertyIds)
+        .select(
+          'tenants.id',
+          'tenants.property_id',
+          'tenants.flat_number',
+          'tenants.status',
+          'users.name',
+          'users.phone',
+          'users.wallet_address'
+        );
+
+      const results = properties.map(p => ({
+        ...p,
+        tenants: tenants.filter(t => t.property_id === p.id)
+      }));
+
+      res.status(200).json(results);
+    } catch (error) {
+      console.error('HAL getLandlordData error:', error);
       res.status(500).json({ error: 'Internal server error' });
     }
   }

@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gridee | Hardware Simulation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4F46E5;
+            --secondary: #10B981;
+            --danger: #EF4444;
+            --bg: #0F172A;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text: #F8FAFC;
+            --text-dim: #94A3B8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 40px 20px;
+            background: radial-gradient(circle at top right, #1e1b4b, #0f172a);
+        }
+
+        h1, h2, h3 {
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .logo {
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: linear-gradient(to right, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: var(--text-dim);
+            font-weight: 300;
+        }
+
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 40px;
+            background: var(--card-bg);
+            padding: 10px;
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: white;
+            padding: 10px 15px;
+            font-size: 1rem;
+            outline: none;
+        }
+
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 25px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            filter: brightness(1.2);
+            transform: translateY(-1px);
+        }
+
+        button.secondary {
+            background: var(--secondary);
+        }
+
+        button.danger {
+            background: var(--danger);
+        }
+
+        .property-card {
+            background: var(--card-bg);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .property-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 30px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 20px;
+        }
+
+        .property-info h2 {
+            font-size: 1.8rem;
+            margin-bottom: 5px;
+        }
+
+        .property-code {
+            display: inline-block;
+            background: rgba(129, 140, 248, 0.2);
+            color: #a5b4fc;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .meter-display {
+            text-align: right;
+        }
+
+        .meter-value {
+            font-size: 2.5rem;
+            font-weight: 800;
+            font-family: monospace;
+            color: var(--secondary);
+        }
+
+        .meter-label {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .tenants-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .tenant-card {
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
+        }
+
+        .tenant-card:hover {
+            border-color: rgba(255, 255, 255, 0.2);
+            background: rgba(15, 23, 42, 0.8);
+        }
+
+        .tenant-name {
+            font-weight: 700;
+            margin-bottom: 5px;
+            font-size: 1.1rem;
+        }
+
+        .tenant-meta {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-bottom: 15px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 20px 0;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-CONNECTED { color: var(--secondary); }
+        .status-DISCONNECTED { color: var(--danger); }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .action-btn {
+            flex: 1;
+            padding: 8px;
+            font-size: 0.8rem;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: var(--text-dim);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--primary);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            transform: translateY(100px);
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">Gridee HAL</div>
+            <p class="subtitle">Hardware Simulation Interface for Platform Validation</p>
+        </header>
+
+        <div class="search-box">
+            <input type="text" id="landlordPhone" placeholder="Enter Landlord Phone Number (e.g. 234...)" value="2348098765432">
+            <button onclick="fetchData()">Load Simulation</button>
+        </div>
+
+        <div id="content">
+            <div class="loading">Enter a landlord phone number to load hardware data.</div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast">Action successful!</div>
+
+    <script>
+        async function fetchData() {
+            const phone = document.getElementById('landlordPhone').value;
+            if (!phone) return;
+
+            const content = document.getElementById('content');
+            content.innerHTML = '<div class="loading">Accessing hardware via RPC...</div>';
+
+            try {
+                const response = await fetch(`http://localhost:8000/hal/landlords/${phone}`);
+                const data = await response.json();
+
+                if (response.status === 404) {
+                    content.innerHTML = '<div class="loading">Landlord not found.</div>';
+                    return;
+                }
+
+                renderData(data);
+            } catch (error) {
+                content.innerHTML = '<div class="loading">Failed to connect to simulation backend.</div>';
+            }
+        }
+
+        function renderData(properties) {
+            const content = document.getElementById('content');
+            content.innerHTML = '';
+
+            properties.forEach(prop => {
+                const card = document.createElement('div');
+                card.className = 'property-card';
+                card.innerHTML = `
+                    <div class="property-header">
+                        <div class="property-info">
+                            <span class="property-code">${prop.code}</span>
+                            <h2>${prop.label || 'Unnamed Property'}</h2>
+                            <p class="subtitle">${prop.address}</p>
+                        </div>
+                        <div class="meter-display">
+                            <div class="meter-label">Main Meter</div>
+                            <div class="meter-value">${prop.meter_reading || '0.00'}</div>
+                            <div class="meter-label">Total kWh</div>
+                        </div>
+                    </div>
+                    <div class="tenants-grid">
+                        ${prop.tenants.map(t => `
+                            <div class="tenant-card">
+                                <div class="tenant-name">${t.name}</div>
+                                <div class="tenant-meta">
+                                    Flat: ${t.flat_number || 'N/A'}<br>
+                                    ${t.phone}
+                                </div>
+                                <div class="status-badge status-${t.status}">${t.status}</div>
+                                <div class="actions">
+                                    <button class="action-btn secondary" onclick="consume(${t.id})">Consume 1kWh</button>
+                                    ${t.status === 'CONNECTED' 
+                                        ? `<button class="action-btn danger" onclick="cutoff(${t.id})">Cutoff</button>`
+                                        : `<button class="action-btn secondary" onclick="reconnect(${t.id})">Reconnect</button>`
+                                    }
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                content.appendChild(card);
+            });
+        }
+
+        async function consume(tenantId) {
+            await performAction('/hal/mock-consume', { tenantId, kwhAmount: 1 });
+        }
+
+        async function cutoff(tenantId) {
+            await performAction('/hal/cutoff', { tenantId });
+        }
+
+        async function reconnect(tenantId) {
+            await performAction('/hal/reconnect', { tenantId });
+        }
+
+        async function performAction(url, body) {
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const result = await response.json();
+                showToast(result.message || 'Action completed');
+                fetchData(); // Refresh
+            } catch (error) {
+                showToast('Failed to execute action', true);
+            }
+        }
+
+        function showToast(msg, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.style.background = isError ? '#EF4444' : '#4F46E5';
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+    </script>
+</body>
+</html>
