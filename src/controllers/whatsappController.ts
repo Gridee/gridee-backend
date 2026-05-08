@@ -193,8 +193,9 @@ export const whatsappController = {
         }
 
         if (input.startsWith('withdraw') || input === '2') {
+          const wAddr = user?.wallet_address || 'Not found';
           await whatsappController.updateSession(phone, { state: 'AWAITING_WITHDRAWAL_AMOUNT' });
-          twiml.message("💸 *How much USDC* would you like to withdraw?");
+          twiml.message(`💸 *Initiating Withdrawal*\n\nYour wallet:\n\`${wAddr}\`\n\nHow much USDC would you like to withdraw?`);
           res.type('text/xml').send(twiml.toString());
           return;
         }
@@ -234,9 +235,11 @@ export const whatsappController = {
               text = `📈 *Landlord Earnings*\n\nGross: *${data.totalGross} USDC*\nNet: *${data.totalNet} USDC*\nFee: *${data.platformFee}*`;
             } else if (data.totalProperties !== undefined) {
               text = `📊 *Platform Stats*\n\n🏘️ Total Properties: *${data.totalProperties}*\n👥 Total Tenants: *${data.totalTenants}*\n⚡ Energy Sold: *${data.totalEnergySold} kWh*`;
-            } else if (data.user && data.message) {
-              const walletInfo = data.user?.wallet_address ? `\n\n📍 *Your Wallet Address*:\n\`${data.user.wallet_address}\`\n_(You can send USDC to this address on the Base network)_` : '';
-              text = `🎊 *Welcome, ${data.user.name}!*\n\n${data.message}${walletInfo}\n\nType *'Menu'* to see what you can do next!`;
+            } else if ((data.user || data.tenant || data.landlord) && data.message) {
+              const u = data.user || data.tenant || data.landlord;
+              const wAddr = u.wallet_address || u.walletAddress;
+              const walletInfo = wAddr ? `\n\n📍 *Your Wallet Address*:\n\`${wAddr}\`\n_(You can send USDC to this address on the Base network)_` : '';
+              text = `🎊 *Welcome, ${u.name}!*\n\n${data.message}${walletInfo}\n\nType *'Menu'* to see what you can do next!`;
             } else if (data.message) {
               text = (data.success === false ? "❌ " : "✅ ") + data.message;
             } else if (data.error) {
