@@ -88,19 +88,19 @@ export const whatsappController = {
       }
 
       // 4. Common Commands (Proxy to botController)
-      if (input.includes('balance') || input === 'bal' || input === '1') {
+      if (input.includes('balance') || input === 'bal') {
         req.params = { phone };
         await botController.getTenantBalance(req as any, botRes as any);
         return;
       }
 
-      if (input === 'history' || input === 'transactions' || input === '4') {
+      if (input === 'history' || input === 'transactions') {
         req.params = { phone };
         await botController.getTenantHistory(req as any, botRes as any);
         return;
       }
 
-      if (input.startsWith('fund') || input.startsWith('topup') || input === '2') {
+      if (input.startsWith('fund') || input.startsWith('topup')) {
         const walletAddress = user?.wallet_address || 'Not found';
         const amount = parseFloat(input.replace('fund', '').replace('topup', '').trim());
         
@@ -124,7 +124,7 @@ export const whatsappController = {
         return;
       }
 
-      if (input.startsWith('buy') || input === '3') {
+      if (input.startsWith('buy')) {
         const amount = parseFloat(input.replace('buy', '').trim());
         if (!isNaN(amount) && amount > 0) {
           twiml.message(`⏳ *Purchasing ${amount} USDC worth of tokens...*\n\nThis takes a few seconds on-chain.`);
